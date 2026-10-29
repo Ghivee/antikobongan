@@ -1,0 +1,8 @@
+*
+!public
+!public/**
+!api
+!api/**
+!lib
+!lib/**
+!vercel.json
