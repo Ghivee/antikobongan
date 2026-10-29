@@ -6,7 +6,7 @@ import { activeNode, emit, nodeLabel, on, state } from './store.js';
 import { log, logEntries, onLog } from './log.js';
 import { fmtAge, fmtClock, fmtDateTime, fmtNum } from './format.js';
 import { LEVEL_INFO, levelOf } from './risk.js';
-import { buildModel, createMainChart } from './charts.js';
+import { buildModel, createMainChart, createOverview, METRICS } from './charts.js';
 import { initMap, renderMarkers, resizeMap } from './map.js';
 import { loadNodes, refreshAll, refreshEvents, refreshLatest, refreshReadings, refreshSeries, refreshSpark, startPolling, stopPolling } from './data.js';
 import { startMqtt } from './mqtt-live.js';
@@ -14,7 +14,7 @@ import { current, nodeLink } from './derive.js';
 import { mountMetrics, renderMetrics } from './ui/metrics.js';
 import { renderRisk } from './ui/risk.js';
 import { renderStatus } from './ui/status.js';
-import { bindTrend, RANGES, renderFoot, renderReadout, renderSub, renderTabs as renderMetricTabs } from './ui/trend.js';
+import { bindTrend, OVERVIEW, RANGES, renderFoot, renderReadout, renderSub, renderTabs as renderMetricTabs } from './ui/trend.js';
 import { renderEvents } from './ui/events.js';
 import { bindTabs, renderActions, renderNodeGroups, renderTabs as renderSideTabs, visibleNodes } from './ui/sidebar.js';
 import { renderIo } from './ui/io.js';
@@ -22,6 +22,7 @@ import { renderHistory } from './ui/history.js';
 import { openAdmin } from './ui/admin.js';
 import { openDiag } from './ui/diag.js';
 import { toast } from './ui/toast.js';
+import { initLayout, resetLayout } from './ui/layout.js';
 
 const PREF_KEY = 'antikobongan-pref';
 const TAIL_MAX = 2000;
@@ -30,7 +31,7 @@ const el = {
   colMain: $('#col-main'), metrics: $('#metrics'),
   risk: $('#risk'), riskBadge: $('#risk-badge'), riskBody: $('#risk-body'),
   chartSub: $('#chart-sub'), range: $('#chart-range'), chartExpand: $('#chart-expand'), metricTabs: $('#metric-tabs'),
-  customRange: $('#custom-range'), readout: $('#readout'), chartWrap: $('#chart-wrap'), chartFoot: $('#chart-foot'),
+  customRange: $('#custom-range'), readout: $('#readout'), chartSingle: $('#chart-single'), chartMulti: $('#chart-multi'), chartFoot: $('#chart-foot'),
   map: $('#map'), mapOverlay: $('#map-overlay'), mapCoords: $('#map-coords'), mapExpand: $('#map-expand'),
   nodeGroups: $('#node-groups'), nodeCount: $('#node-count'), nodeFilter: $('#node-filter'),
   btnConnect: $('#btn-connect'), btnRefresh: $('#btn-refresh'), nodeLine: $('#node-line'),
@@ -95,6 +96,13 @@ function setFocus(mode) {
   el.chartExpand.textContent = state.focus === 'chart' ? 'Kembalikan' : 'Perluas';
   el.mapExpand.textContent = state.focus === 'map' ? 'Kembalikan' : 'Perluas';
   resizeMap();
+}
+
+function resetView() {
+  resetLayout();
+  if (state.focus) setFocus(state.focus);
+  resizeMap();
+  toast({ level: 'NORMAL', title: 'Tampilan dikembalikan', text: 'Ukuran semua panel kembali ke bawaan.' });
 }
 
 function setTab(tab) {
@@ -195,6 +203,7 @@ function toggleLive() {
 
 // ── Render ────────────────────────────────────────────────────────────────
 let mainChart = null;
+let overviewChart = null;
 let mapReady = false;
 
 function hasTekanan() {
@@ -208,6 +217,9 @@ function renderTrend() {
   const id = state.activeId;
   const entry = id ? state.series[id] : null;
   if (state.metric === 'tekanan' && !hasTekanan()) state.metric = 'risk';
+  const overview = state.metric === OVERVIEW.key && Boolean(overviewChart);
+  el.chartSingle.hidden = overview;
+  el.chartMulti.hidden = !overview;
   renderMetricTabs(el.metricTabs, el.range, hasTekanan());
   if (!entry || !entry.data) {
     renderSub(el.chartSub, null);
@@ -226,7 +238,8 @@ function renderTrend() {
     latestAt: state.latest[id] && state.latest[id].data ? state.latest[id].data.latest_at : null,
     onJump: jumpTo, onRetry: () => refreshSeries(), onNow: () => setRange('24h'),
   });
-  if (mainChart) mainChart.render(state.mainModel, state.metric);
+  if (overview) overviewChart.render(state.mainModel, { hasTekanan: hasTekanan() });
+  else if (mainChart) mainChart.render(state.mainModel, state.metric === OVERVIEW.key ? 'risk' : state.metric);
 }
 
 let markerSig = '';
@@ -341,6 +354,7 @@ function bindControls() {
     if (!button) return;
     if (button.dataset.action === 'admin') openAdminPanel();
     if (button.dataset.action === 'diag') openDiag(el.diagDialog);
+    if (button.dataset.action === 'reset-layout') resetView();
   });
   bindTrend({ select: el.range, form: el.customRange, tabs: el.metricTabs, onRange: setRange, onCustom: (custom) => { state.custom = custom; setRange('custom'); }, onMetric: setMetric });
   el.chartExpand.addEventListener('click', () => setFocus('chart'));
@@ -364,11 +378,17 @@ function tick() {
 function boot() {
   const pref = readPref();
   if (RANGES.some((r) => r.key === pref.range)) state.range = pref.range;
-  if (pref.metric) state.metric = pref.metric;
+  if (pref.metric && (pref.metric === OVERVIEW.key || METRICS.some((d) => d.key === pref.metric))) state.metric = pref.metric;
   if (pref.tab) state.tab = pick(pref.tab, ['alerts', 'io', 'history', 'log'], 'alerts');
   safe('kontrol', bindControls);
   safe('kartu', () => mountMetrics(el.metrics, setMetric));
-  mainChart = safe('grafik', () => createMainChart(el.chartWrap, { onHover: (row, hovering) => safe('readout', () => renderReadout(el.readout, row, hovering)) })) || null;
+  const onHover = (row, hovering) => safe('readout', () => renderReadout(el.readout, row, hovering));
+  mainChart = safe('grafik', () => createMainChart(el.chartSingle, { onHover })) || null;
+  overviewChart = safe('grafik semua', () => createOverview(el.chartMulti, {
+    onHover: (row, hovering) => safe('readout', () => renderReadout(el.readout, row, hovering, { timeOnly: true })),
+    onPick: setMetric,
+  })) || null;
+  safe('tata letak', () => initLayout(resizeMap));
   mapReady = Boolean(safe('peta', () => initMap(el.map)));
   tick();
   setInterval(tick, 1000);
