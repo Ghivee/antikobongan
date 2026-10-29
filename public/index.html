@@ -35,6 +35,9 @@
           <div class="menu-list" id="menu" hidden>
             <button type="button" data-action="admin">Kelola node (admin)</button>
             <button type="button" data-action="diag">Diagnostik sistem</button>
+            <hr />
+            <button type="button" data-action="reset-layout">Reset tampilan</button>
+            <p class="menu-note">Ukuran panel bisa diatur dengan menyeret garis pembatas di antaranya.</p>
           </div>
         </div>
       </div>
@@ -43,9 +46,10 @@
 
     <div id="body">
       <main id="col-main">
-        <section id="metrics" aria-label="Pembacaan sensor"></section>
+        <section id="metrics" aria-label="Pembacaan sensor"><div class="split split-y" data-split="metrics"></div></section>
 
         <div id="mid">
+          <div class="split split-x" data-split="risk"></div>
           <section class="panel" id="risk" aria-labelledby="risk-title">
             <div class="panel-head">
               <h2 class="panel-title" id="risk-title">Indeks risiko kebakaran</h2>
@@ -81,12 +85,16 @@
               <span class="hint">WIB · maks 90 hari</span>
             </form>
             <div class="readout" id="readout"></div>
-            <div class="chart-wrap" id="chart-wrap"></div>
+            <div class="chart-wrap" id="chart-wrap">
+              <div class="chart-single" id="chart-single"></div>
+              <div class="chart-multi" id="chart-multi" hidden></div>
+            </div>
             <div class="chart-foot" id="chart-foot"></div>
           </section>
         </div>
 
         <section class="panel" id="map-section" aria-labelledby="map-title">
+          <div class="split split-y" data-split="rows"></div>
           <div class="panel-head">
             <h2 class="panel-title" id="map-title">Peta node sensor</h2>
             <div class="map-meta">
@@ -101,11 +109,13 @@
         </section>
       </main>
 
+      <div class="split split-x" data-split="sidebar"></div>
       <aside id="sidebar" aria-label="Node dan informasi">
-        <section class="side-block">
+        <section class="side-block side-nodes">
           <div class="side-head"><h2>Sensor per lokasi</h2><span class="count" id="node-count">0</span></div>
           <input class="node-filter" id="node-filter" type="search" placeholder="Cari nama atau ID node…" aria-label="Cari node" />
           <div id="node-groups"></div>
+          <div class="split split-y" data-split="nodes"></div>
         </section>
 
         <section class="side-block">

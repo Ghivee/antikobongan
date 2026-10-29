@@ -1,4 +1,5 @@
-// Grafik: satu grafik tren utama (dipilih per besaran) + sparkline di kartu.
+// Grafik: tren utama (satu besaran), ringkasan semua sensor (satu grafik per
+// besaran, kursor sinkron), dan tren latar di kartu metrik.
 // Sumbu waktu nyata, pita min–maks per bucket, jeda data diarsir (tidak
 // dijembatani), dan readout di bawah kursor.
 
@@ -24,7 +25,7 @@ let registered = false;
 
 function readColors() {
   colors = {
-    seri: css('--seri'), band: css('--band'), line: css('--line'), text3: css('--text-3'), text2: css('--text-2'), accent: css('--accent'),
+    seri: css('--seri'), seriHex: css('--seri'), band: css('--band'), line: css('--line'), text3: css('--text-3'), text2: css('--text-2'), accent: css('--accent'),
     level: Object.fromEntries(Object.entries(LEVEL_VAR).map(([k, v]) => [k, css(v)])),
   };
 }
@@ -157,6 +158,7 @@ const bandsPlugin = {
       ctx.lineTo(area.right, bottom);
       ctx.stroke();
       ctx.setLineDash([]);
+      if (ak.mini) continue;
       ctx.fillStyle = colors.level[level];
       ctx.font = '12px "Public Sans", system-ui, sans-serif';
       ctx.textAlign = 'right';
@@ -184,6 +186,8 @@ const gapsPlugin = {
       ctx.clip();
       ctx.fillStyle = 'rgba(138, 144, 135, 0.07)';
       ctx.fillRect(left, area.top, right - left, height);
+      // Tren latar kartu: cukup bidang samar, tanpa arsir.
+      if (ak.spark) { ctx.restore(); continue; }
       ctx.strokeStyle = 'rgba(138, 144, 135, 0.14)';
       ctx.lineWidth = 1;
       for (let sx = left - height; sx < right; sx += ak.spark ? 5 : 8) {
@@ -193,7 +197,7 @@ const gapsPlugin = {
         ctx.stroke();
       }
       ctx.restore();
-      if (!ak.spark && right - left > 96) {
+      if (!ak.spark && !ak.mini && right - left > 96) {
         ctx.save();
         ctx.fillStyle = colors.text2;
         ctx.font = '12px "Public Sans", system-ui, sans-serif';
@@ -244,7 +248,7 @@ function ensureSetup() {
   registered = true;
 }
 
-function datasets(isRisk, spark) {
+function datasets(isRisk, spark, bg = false) {
   const lineColor = (ctx) => {
     if (!isRisk) return colors.seri;
     const a = ctx.p0 && ctx.p0.parsed.y;
@@ -259,6 +263,13 @@ function datasets(isRisk, spark) {
     const next = data[i + 1];
     return (!prev || prev.y === null) && (!next || next.y === null) ? (spark ? 1.5 : 2.5) : 0;
   };
+  if (bg) {
+    // Tren latar kartu: area rata-rata yang samar di belakang angka.
+    return [{
+      label: 'rata-rata', data: [], borderColor: withAlpha(colors.seriHex, 0.55), borderWidth: 1.4, pointRadius: isolated, pointHoverRadius: 0,
+      pointBackgroundColor: withAlpha(colors.seriHex, 0.7), fill: 'start', backgroundColor: withAlpha(colors.seriHex, 0.1), tension: 0.25, spanGaps: false,
+    }];
+  }
   return [
     { label: 'min', data: [], borderWidth: 0, pointRadius: 0, fill: false, spanGaps: false },
     { label: 'maks', data: [], borderWidth: 0, pointRadius: 0, fill: '-1', backgroundColor: colors.band, spanGaps: false },
@@ -272,9 +283,60 @@ function datasets(isRisk, spark) {
 
 function setData(chart, model, def) {
   const pts = model.points[def.key];
+  if (chart.data.datasets.length === 1) { chart.data.datasets[0].data = pts.avg; return; }
   chart.data.datasets[0].data = pts.min;
   chart.data.datasets[1].data = pts.max;
   chart.data.datasets[2].data = pts.avg;
+}
+
+// Chart.js memutar ulang event mouse terakhir setiap update; abaikan bila
+// kursor sebenarnya sudah tidak di atas kanvas (kursor tidak "tertinggal").
+// Sentuhan: nilai tetap tampil setelah jari diangkat.
+function hoverGuard(canvas, setHover) {
+  let inside = false;
+  canvas.addEventListener('pointerenter', () => { inside = true; });
+  canvas.addEventListener('pointerdown', () => { inside = true; });
+  canvas.addEventListener('pointerleave', (event) => {
+    if (event.pointerType === 'touch') return;
+    inside = false;
+    setHover(null);
+  });
+  return (x) => { if (inside) setHover(x); };
+}
+
+function lineOptions(ak, onHover, mini) {
+  return {
+    animation: false, parsing: false, normalized: true, responsive: true, maintainAspectRatio: false,
+    events: ['mousemove', 'mouseout', 'touchstart', 'touchmove', 'click'],
+    onHover: (event, _items, c) => onHover(event.type === 'mouseout' ? null : c.scales.x.getValueForPixel(event.x)),
+    plugins: { legend: { display: false }, tooltip: { enabled: false }, decimation: { enabled: false } },
+    layout: { padding: mini ? { right: 4 } : 0 },
+    scales: {
+      x: {
+        type: timeAxis, grid: { color: colors.line, drawTicks: false }, border: { display: false },
+        ticks: { color: colors.text3, font: { size: 12 }, maxRotation: 0, autoSkip: Boolean(mini), autoSkipPadding: 16, maxTicksLimit: mini ? 6 : 14, padding: mini ? 4 : 6, callback: (v) => fmtTick(Number(v), ak.model ? ak.model.to - ak.model.from : 0) },
+      },
+      y: { grid: { color: colors.line, drawTicks: false }, border: { display: false }, ticks: { color: colors.text3, font: { size: 12 }, padding: mini ? 4 : 6, maxTicksLimit: mini ? 4 : 11, callback: (v) => fmtNum(v, 0) } },
+    },
+  };
+}
+
+const NICE = [1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000];
+
+function applyScales(chart, model, def, mini) {
+  chart.options.scales.x.min = model.from;
+  chart.options.scales.x.max = model.to;
+  if (timeAxis === 'time') {
+    const step = timeStep(model.to - model.from);
+    // Grafik sempit: jarak tick digandakan agar label tidak berdempet.
+    if (chart.width < 560) step.stepSize *= 2;
+    if (mini) chart.options.scales.x.time = { unit: step.unit };
+    else chart.options.scales.x.time = step;
+  }
+  const [lo, hi] = yRange(def, extent(model, def.key));
+  chart.options.scales.y.min = lo;
+  chart.options.scales.y.max = hi;
+  chart.options.scales.y.ticks.stepSize = mini ? NICE.find((c) => (hi - lo) / c <= 4) : def.step;
 }
 
 // ── Grafik utama ──────────────────────────────────────────────────────────
@@ -288,25 +350,8 @@ export function createMainChart(container, { onHover }) {
   container.append(canvas);
   let current = null;
   const ak = { model: null, metric: 'risk', hoverX: null };
-  const chart = new window.Chart(canvas, {
-    type: 'line',
-    data: { datasets: [] },
-    options: {
-      animation: false, parsing: false, normalized: true, responsive: true, maintainAspectRatio: false,
-      events: ['mousemove', 'mouseout', 'touchstart', 'touchmove', 'click'],
-      onHover: (event, _items, c) => setHover(event.type === 'mouseout' ? null : c.scales.x.getValueForPixel(event.x)),
-      plugins: { legend: { display: false }, tooltip: { enabled: false }, decimation: { enabled: false } },
-      scales: {
-        x: {
-          type: timeAxis, grid: { color: colors.line, drawTicks: false }, border: { display: false },
-          ticks: { color: colors.text3, font: { size: 12 }, maxRotation: 0, autoSkip: false, maxTicksLimit: 14, padding: 6, callback: (v) => fmtTick(Number(v), ak.model ? ak.model.to - ak.model.from : 0) },
-        },
-        y: { grid: { color: colors.line, drawTicks: false }, border: { display: false }, ticks: { color: colors.text3, font: { size: 12 }, padding: 6, callback: (v) => fmtNum(v, 0) } },
-      },
-    },
-  });
+  const chart = new window.Chart(canvas, { type: 'line', data: { datasets: [] }, options: lineOptions(ak, hoverGuard(canvas, (x) => setHover(x)), false) });
   chart.$ak = ak;
-  canvas.addEventListener('pointerleave', () => setHover(null));
 
   function setHover(x) {
     chart.$ak.hoverX = x;
@@ -324,18 +369,7 @@ export function createMainChart(container, { onHover }) {
       chart.$ak.model = model;
       chart.$ak.metric = def.key;
       setData(chart, model, def);
-      chart.options.scales.x.min = model.from;
-      chart.options.scales.x.max = model.to;
-      if (timeAxis === 'time') {
-        const step = timeStep(model.to - model.from);
-        // Grafik sempit (ponsel): jarak tick digandakan agar label tidak berdempet.
-        if (chart.width < 560) step.stepSize *= 2;
-        chart.options.scales.x.time = step;
-      }
-      const [lo, hi] = yRange(def, extent(model, def.key));
-      chart.options.scales.y.min = lo;
-      chart.options.scales.y.max = hi;
-      chart.options.scales.y.ticks.stepSize = def.step;
+      applyScales(chart, model, def, false);
       chart.update('none');
       onHover(rowAt(model, chart.$ak.hoverX), chart.$ak.hoverX !== null);
     },
@@ -343,7 +377,96 @@ export function createMainChart(container, { onHover }) {
   };
 }
 
-// ── Sparkline kartu (skala Y tetap per besaran) ───────────────────────────
+// ── Semua sensor: satu grafik kecil per besaran, sumbu waktu & kursor sinkron ──
+// Jumlah kolom dipilih dari rasio kotak agar tiap grafik tetap proporsional.
+function bestColumns(n, width, height) {
+  let best = 1;
+  let score = Infinity;
+  for (let cols = 1; cols <= n; cols += 1) {
+    const rows = Math.ceil(n / cols);
+    const w = width / cols;
+    const hgt = height / rows;
+    if (w < 190 && cols > 1) break;
+    // Utamakan grafik setinggi ≥ 130 px; di bawah itu kotak digulir.
+    const s = Math.abs(Math.log((w / hgt) / 2.4)) + (rows * cols - n) * 0.15 + (hgt < 130 ? 4 + (130 - hgt) / 20 : 0);
+    if (s < score) { score = s; best = cols; }
+  }
+  return best;
+}
+
+export function createOverview(container, { onHover, onPick }) {
+  if (!chartsAvailable()) return null;
+  ensureSetup();
+  const grid = h('div', { class: 'ov-grid' });
+  container.append(grid);
+  const cells = new Map();
+  let model = null;
+  let hoverX = null;
+
+  for (const def of METRICS) {
+    const range = h('span', { class: 'ov-range' });
+    const plot = h('div', { class: 'ov-plot' });
+    const canvas = h('canvas', { role: 'img', 'aria-label': `Grafik ${def.label.toLowerCase()}` });
+    plot.append(canvas);
+    const title = def.unit ? `${def.label} (${def.unit})` : `${def.label} (/100)`;
+    const head = h('button', { type: 'button', class: 'ov-head', title: `Buka grafik ${def.label.toLowerCase()} saja`, onclick: () => onPick(def.key) },
+      h('span', { class: 'ov-label', text: title }), range);
+    const cell = h('div', { class: 'ov-cell', dataset: { metric: def.key } }, head, plot);
+    grid.append(cell);
+    const ak = { model: null, metric: def.key, hoverX: null, mini: true };
+    const chart = new window.Chart(canvas, { type: 'line', data: { datasets: datasets(def.key === 'risk', false) }, options: lineOptions(ak, hoverGuard(canvas, (x) => setHover(x)), true) });
+    chart.$ak = ak;
+      cells.set(def.key, { def, cell, chart, range });
+  }
+
+  // Kepala tiap grafik: nilai di kursor (atau terakhir) · rentang di jendela.
+  function showValues(row) {
+    for (const c of cells.values()) {
+      if (c.cell.hidden) continue;
+      const v = row ? row[c.def.key].avg : null;
+      fill(c.range, h('b', { text: v === null || v === undefined ? '—' : `${fmtNum(v, c.def.dec)}${c.def.unit ? ` ${c.def.unit}` : ''}` }), c.ext ? ` · ${c.ext}` : '');
+    }
+  }
+
+  function setHover(x) {
+    hoverX = x;
+    for (const c of cells.values()) { c.chart.$ak.hoverX = x; if (!c.cell.hidden) c.chart.draw(); }
+    const row = rowAt(model, x);
+    showValues(row);
+    onHover(row, x !== null);
+  }
+
+  function layout() {
+    const visible = [...cells.values()].filter((c) => !c.cell.hidden).length || 1;
+    const fixed = getComputedStyle(grid).position === 'absolute';
+    grid.style.setProperty('--ov-cols', String(fixed ? bestColumns(visible, grid.clientWidth, grid.clientHeight) : Math.max(1, Math.floor(grid.clientWidth / 280))));
+    grid.style.setProperty('--ov-rows', String(Math.ceil(visible / Number(grid.style.getPropertyValue('--ov-cols')))));
+  }
+  if (window.ResizeObserver) new ResizeObserver(layout).observe(grid);
+
+  return {
+    render(nextModel, { hasTekanan }) {
+      model = nextModel;
+      for (const c of cells.values()) {
+        c.cell.hidden = Boolean(c.def.optional && !hasTekanan);
+        if (c.cell.hidden) continue;
+        c.chart.$ak.model = model;
+        setData(c.chart, model, c.def);
+        applyScales(c.chart, model, c.def, true);
+        c.chart.update('none');
+        const ext = extent(model, c.def.key);
+        c.ext = ext ? `${fmtNum(ext.min, c.def.dec)}–${fmtNum(ext.max, c.def.dec)}` : 'tidak ada data';
+        c.range.title = ext ? `Rentang di jendela ini: ${c.ext}${c.def.unit ? ` ${c.def.unit}` : ''}` : '';
+      }
+      layout();
+      const row = rowAt(model, hoverX);
+      showValues(row);
+      onHover(row, hoverX !== null);
+    },
+  };
+}
+
+// ── Tren latar kartu (skala Y tetap per besaran) ──────────────────────────
 export function createSpark(box, def) {
   if (!chartsAvailable()) return null;
   ensureSetup();
@@ -351,11 +474,11 @@ export function createSpark(box, def) {
   box.append(canvas);
   const chart = new window.Chart(canvas, {
     type: 'line',
-    data: { datasets: datasets(def.key === 'risk', true) },
+    data: { datasets: datasets(def.key === 'risk', true, true) },
     options: {
       animation: false, parsing: false, normalized: true, responsive: true, maintainAspectRatio: false, events: [],
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      layout: { padding: { top: 2, bottom: 2 } },
+      layout: { padding: { top: 4, bottom: 0 } },
       scales: { x: { type: 'linear', display: false }, y: { display: false } },
     },
   });

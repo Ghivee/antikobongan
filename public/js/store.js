@@ -10,7 +10,7 @@ export const state = {
   activeId: null,
   range: '24h',
   custom: null, // { from, to } epoch ms
-  metric: 'risk', // besaran di grafik tren
+  metric: 'all', // besaran di grafik tren ('all' = semua sensor)
   tab: 'alerts', // tab sidebar
   filter: '', // pencarian node
   focus: null, // 'chart' | 'map' | null

@@ -1,4 +1,5 @@
-// Deretan kartu metrik: nilai terkini + waktu pembacaan + sparkline 1 jam.
+// Deretan kartu metrik: nilai terkini + waktu pembacaan, dengan tren 1 jam
+// terakhir digambar samar di latar kartu.
 
 import { state } from '../store.js';
 import { current } from '../derive.js';
@@ -22,11 +23,11 @@ export function mountMetrics(el, onPick) {
     const value = h('div', { class: 'met-value' });
     const delta = h('span', { class: 'met-delta' });
     const time = h('div', { class: 'met-time' });
-    const box = h('div', { class: 'spark' });
+    const box = h('div', { class: 'spark', 'aria-hidden': 'true' });
     const cap = h('div', { class: 'spark-cap' });
     const card = h('button', { type: 'button', class: 'met', 'aria-pressed': 'false', title: def.hint ? `${def.hint} Klik untuk melihat grafiknya.` : `Klik untuk melihat grafik ${def.label.toLowerCase()}.`, onclick: () => onPick(c.metric) },
       h('div', { class: 'met-head' }, h('span', { class: 'met-label', text: def.label }), delta),
-      value, time, box, cap);
+      value, time, cap, box);
     if (c.optional) card.hidden = true;
     el.append(card);
     cards.set(c.metric, { ...c, def, card, value, delta, time, box, cap, spark: null });
@@ -67,11 +68,8 @@ export function renderMetrics({ now = Date.now(), sparkChanged = false } = {}) {
     else c.time.textContent = stale ? `${fmtDateTime(cur.at)} · ${fmtAge(cur.at, now)}` : `${fmtDateTime(cur.at, { seconds: true })} · ${cur.source === 'live' ? 'live' : 'tersimpan'}`;
 
     if (!sparkModel || !sparkModel.rows.length) {
-      if (c.spark || !c.box.querySelector('.spark-empty')) {
-        c.spark = null;
-        fill(c.box, h('div', { class: 'spark-empty', text: id ? 'Belum ada riwayat' : '' }));
-      }
-      c.cap.textContent = '';
+      if (c.spark) { c.spark = null; fill(c.box); }
+      c.cap.textContent = id ? 'Belum ada riwayat 1 jam' : '';
       continue;
     }
     if (!c.spark) {

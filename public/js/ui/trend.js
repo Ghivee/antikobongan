@@ -5,6 +5,9 @@ import { fill, h } from '../dom.js';
 import { fmtDateTime, fmtDuration, fmtNum, fromLocalInput, toLocalInput } from '../format.js';
 import { METRICS, metricDef } from '../charts.js';
 
+// Tab "Semua sensor": satu grafik per besaran dalam satu panel.
+export const OVERVIEW = { key: 'all', label: 'Semua sensor', hint: 'Semua besaran sekaligus, kursor sinkron di semua grafik.' };
+
 export const RANGES = [
   { key: '1h', label: '1 jam', ms: 3600e3 },
   { key: '6h', label: '6 jam', ms: 6 * 3600e3 },
@@ -56,7 +59,7 @@ export function bindTrend({ select, form, tabs, onRange, onCustom, onMetric }) {
 }
 
 export function renderTabs(tabs, select, hasTekanan) {
-  const defs = METRICS.filter((d) => !d.optional || hasTekanan);
+  const defs = [OVERVIEW, ...METRICS.filter((d) => !d.optional || hasTekanan)];
   if (tabs.childElementCount !== defs.length) {
     fill(tabs, defs.map((d) => h('button', { type: 'button', role: 'tab', dataset: { metric: d.key }, text: d.unit ? `${d.label} (${d.unit})` : d.label, title: d.hint || null })));
   }
@@ -69,9 +72,9 @@ export function renderTabs(tabs, select, hasTekanan) {
 }
 
 export function renderSub(el, model) {
-  const def = metricDef(state.metric);
+  const label = state.metric === OVERVIEW.key ? OVERVIEW.label : metricDef(state.metric).label;
   if (!model) { el.textContent = 'Memuat riwayat…'; return; }
-  el.textContent = `${def.label} · ${fmtDateTime(model.from)} – ${fmtDateTime(model.to)}`;
+  el.textContent = `${label} · ${fmtDateTime(model.from)} – ${fmtDateTime(model.to)}`;
 }
 
 export function renderFoot(el, { entry, model, latestAt, onJump, onRetry, onNow }) {
@@ -106,9 +109,17 @@ export function renderFoot(el, { entry, model, latestAt, onJump, onRetry, onNow 
   fill(el, parts);
 }
 
-export function renderReadout(el, row, hovering) {
+// timeOnly: mode Semua sensor — nilai tiap besaran sudah tampil di kepala grafiknya.
+export function renderReadout(el, row, hovering, { timeOnly = false } = {}) {
   if (!row) {
     fill(el, h('span', { text: 'Arahkan kursor atau sentuh grafik untuk melihat nilai di waktu tertentu.' }));
+    return;
+  }
+  if (timeOnly) {
+    fill(el,
+      h('span', { class: 'rd-time', text: `${hovering ? '' : 'Terakhir · '}${fmtDateTime(row.x, { seconds: Boolean(row.live) })}${row.live ? ' · live' : ''}` }),
+      row.n > 1 && h('span', { text: `${row.n} sampel` }),
+      h('span', { text: 'Nilai di kepala tiap grafik · klik judul untuk memperbesar' }));
     return;
   }
   const items = METRICS.filter((d) => !d.optional || row[d.key].avg !== null).map((def) => {
