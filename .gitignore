@@ -1,0 +1,13 @@
+.vercel
+node_modules/
+build/
+.env
+.env.local
+.env*.local
+.venv/
+backend/logs/
+.agent-backup/
+secrets.h
+__pycache__/
+*.pyc
+.DS_Store

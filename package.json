@@ -1,0 +1,27 @@
+{
+  "name": "antikobongan-dashboard",
+  "version": "2.0.0",
+  "private": true,
+  "description": "AntiKobongan — dasbor pemantauan risiko kebakaran hutan (ESP32 + MQTT + Supabase).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "vendor": "node tools/vendor.js",
+    "test": "node --test \"test/*.test.js\" \"test/*.test.mjs\"",
+    "check": "node --check server.js && for f in api/*.js lib/*.js lib/handlers/*.js tools/*.js; do node --check \"$f\" || exit 1; done"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@fontsource/public-sans": "5.3.0",
+    "chart.js": "4.5.1",
+    "chartjs-adapter-date-fns": "3.0.0",
+    "leaflet": "1.9.4",
+    "mqtt": "5.16.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

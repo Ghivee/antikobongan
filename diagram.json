@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "author": "AntiKobongan",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -220,
+      "left": -330,
+      "attrs": { "temperature": "31", "humidity": "45" }
+    },
+    {
+      "type": "wokwi-gas-sensor",
+      "id": "gas1",
+      "top": -80,
+      "left": -330,
+      "attrs": { "ppm": "400" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "soil1",
+      "top": 210,
+      "left": -330,
+      "attrs": { "value": "0.5" }
+    },
+    {
+      "type": "board-bmp180",
+      "id": "bmp1",
+      "top": -220,
+      "left": 330,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": 300,
+      "left": 40,
+      "attrs": { "volume": "0.1" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_red",
+      "top": 220,
+      "left": 300,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_red",
+      "top": 250,
+      "left": 400,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_green",
+      "top": 320,
+      "left": 300,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_green",
+      "top": 350,
+      "left": 400,
+      "attrs": { "color": "green" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX0", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX0", "$serialMonitor:TX", "", [] ],
+    [ "dht1:VCC", "esp:3V3", "red", [] ],
+    [ "dht1:GND", "esp:GND.2", "black", [] ],
+    [ "dht1:SDA", "esp:D4", "green", [] ],
+    [ "gas1:VCC", "esp:VIN", "red", [] ],
+    [ "gas1:GND", "esp:GND.1", "black", [] ],
+    [ "gas1:AOUT", "esp:D34", "orange", [] ],
+    [ "soil1:VCC", "esp:3V3", "red", [] ],
+    [ "soil1:GND", "esp:GND.2", "black", [] ],
+    [ "soil1:SIG", "esp:D35", "gold", [] ],
+    [ "bmp1:VCC", "esp:3V3", "red", [] ],
+    [ "bmp1:GND", "esp:GND.2", "black", [] ],
+    [ "bmp1:SCL", "esp:D22", "blue", [] ],
+    [ "bmp1:SDA", "esp:D21", "green", [] ],
+    [ "bz1:1", "esp:GND.1", "black", [] ],
+    [ "bz1:2", "esp:D25", "purple", [] ],
+    [ "esp:D26", "r_red:1", "red", [] ],
+    [ "r_red:2", "led_red:A", "red", [] ],
+    [ "led_red:C", "esp:GND.1", "black", [] ],
+    [ "esp:D27", "r_green:1", "green", [] ],
+    [ "r_green:2", "led_green:A", "green", [] ],
+    [ "led_green:C", "esp:GND.1", "black", [] ]
+  ],
+  "dependencies": {}
+}
