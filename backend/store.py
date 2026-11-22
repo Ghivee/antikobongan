@@ -15,6 +15,11 @@ _SENTINEL = object()
 # Kolom dari sql/002_series.sql. Bila migrasi belum dijalankan, reading tetap
 # disimpan tanpa kolom ini (bukan dibuang).
 _NEW_READING_COLUMNS = ("gas_excess", "formula_version")
+# Kolom yang dibaca bot perintah Telegram.
+READING_FIELDS = (
+    "received_at,sensor_ts,suhu,kelembapan,gas,tekanan,kelembapan_tanah,"
+    "gas_excess,risk_score,status"
+)
 
 
 class SupabaseRest:
@@ -123,6 +128,82 @@ class SupabaseRest:
                 )
         except Exception as exc:
             self._logger.debug("Heartbeat backend gagal disimpan: %s", exc)
+
+    def get_latest_reading(self, node_id: str) -> dict[str, Any] | None:
+        """Pembacaan terbaru untuk satu node (dipakai bot perintah)."""
+        response = self._request(
+            "GET",
+            "/rest/v1/readings",
+            params={
+                "select": READING_FIELDS,
+                "node_id": f"eq.{node_id}",
+                "order": "received_at.desc",
+                "limit": "1",
+            },
+        )
+        self._raise_for_status(response, "baca data terbaru")
+        rows = response.json() or []
+        return rows[0] if rows else None
+
+    def get_recent_readings(self, node_id: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Beberapa pembacaan terakhir, terbaru lebih dulu."""
+        response = self._request(
+            "GET",
+            "/rest/v1/readings",
+            params={
+                "select": READING_FIELDS,
+                "node_id": f"eq.{node_id}",
+                "order": "received_at.desc",
+                "limit": str(max(1, min(limit, 50))),
+            },
+        )
+        self._raise_for_status(response, "baca riwayat terakhir")
+        return response.json() or []
+
+    def get_node_status(self, node_id: str) -> dict[str, Any] | None:
+        response = self._request(
+            "GET",
+            "/rest/v1/node_status",
+            params={
+                "select": "node_id,online,last_seen,updated_at",
+                "node_id": f"eq.{node_id}",
+                "limit": "1",
+            },
+        )
+        self._raise_for_status(response, "baca status node")
+        rows = response.json() or []
+        return rows[0] if rows else None
+
+    def get_readings_since(
+        self,
+        node_id: str,
+        since_iso: str,
+        max_rows: int = 4000,
+        page: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """Pembacaan sejak waktu tertentu, dipecah per halaman Range."""
+        rows: list[dict[str, Any]] = []
+        start = 0
+        while len(rows) < max_rows:
+            end = min(start + page, max_rows) - 1
+            response = self._request(
+                "GET",
+                "/rest/v1/readings",
+                params={
+                    "select": READING_FIELDS,
+                    "node_id": f"eq.{node_id}",
+                    "received_at": f"gte.{since_iso}",
+                    "order": "received_at.asc",
+                },
+                headers={"Range-Unit": "items", "Range": f"{start}-{end}"},
+            )
+            self._raise_for_status(response, "baca riwayat")
+            batch = response.json() or []
+            rows.extend(batch)
+            if len(batch) < end - start + 1:
+                break
+            start = end + 1
+        return rows
 
     def count_old_readings(self, cutoff_iso: str) -> int | None:
         response = self._request(

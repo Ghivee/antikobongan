@@ -2,13 +2,13 @@
 // skor per faktor, skala ambang, dan saran.
 
 import { state } from '../store.js';
-import { current } from '../derive.js';
+import { current, SENSOR_STALE_MS } from '../derive.js';
 import { fill, h, lvClass, mark } from '../dom.js';
 import { fmtAge, fmtDateTime, fmtNum } from '../format.js';
 import { components, FACTORS, LEVEL_INFO, levelOf, THRESHOLDS } from '../risk.js';
 import { rowAt } from '../charts.js';
 
-const STALE_MS = 5 * 60e3;
+const STALE_MS = SENSOR_STALE_MS;
 const SVG = 'http://www.w3.org/2000/svg';
 const LEVEL_VAR = { NORMAL: '--risk-normal', SEDANG: '--risk-sedang', TINGGI: '--risk-tinggi', KRITIS: '--risk-kritis' };
 
@@ -21,7 +21,7 @@ function svg(tag, attrs) {
 function gauge(score, level) {
   const r = 56;
   const len = Math.PI * r;
-  const root = svg('svg', { viewBox: '0 0 132 70', width: 132, height: 70, 'aria-hidden': 'true' });
+  const root = svg('svg', { viewBox: '0 0 132 84', width: 132, height: 84, 'aria-hidden': 'true' });
   const arc = `M10 66 A${r} ${r} 0 0 1 122 66`;
   root.append(svg('path', { d: arc, fill: 'none', stroke: 'var(--line)', 'stroke-width': 10, 'stroke-linecap': 'round' }));
   if (Number.isFinite(score)) {
@@ -31,7 +31,13 @@ function gauge(score, level) {
       'stroke-dasharray': `${len * v} ${len}`,
     }));
   }
-  return h('div', { class: 'gauge' }, root, h('div', { class: 'gauge-num' }, Number.isFinite(score) ? String(score) : '—', h('small', { text: '/100' })));
+  // Angka dan satuan ditulis di dalam SVG supaya ikut skala dan tidak menabrak busur.
+  const num = svg('text', { x: 66, y: 58, 'text-anchor': 'middle', class: 'gauge-score' });
+  num.textContent = Number.isFinite(score) ? String(score) : '—';
+  const unit = svg('text', { x: 66, y: 79, 'text-anchor': 'middle', class: 'gauge-unit' });
+  unit.textContent = 'dari 100';
+  root.append(num, unit);
+  return h('div', { class: 'gauge' }, root);
 }
 
 function trendText(cur) {
@@ -48,7 +54,7 @@ function scale(score) {
   const bar = h('div', { class: 'scale-bar' }, zones.map(([lv, a, b]) => h('span', { class: lvClass(lv), dataset: { w: b - a } })));
   const labels = h('div', { class: 'scale-labels' }, [0, 40, 60, 80, 100].map((v) => h('span', { dataset: { x: v }, text: String(v) })));
   const pointer = h('div', { class: 'scale-pointer' }, Number.isFinite(score) ? h('i', { dataset: { x: Math.min(Math.max(score, 0), 100) } }) : null);
-  return h('div', { class: 'scale', title: 'Ambang: Normal < 40 ≤ Sedang < 60 ≤ Tinggi < 80 ≤ Kritis' }, bar, pointer, labels);
+  return h('div', { class: 'scale', title: 'Ambang: Normal < 40 ≤ Siaga Cuaca Kering < 60 ≤ Waspada Bara dan Asap < 80 ≤ Kebakaran Aktif' }, bar, pointer, labels);
 }
 
 export function renderRisk(section, badge, body, { onRetry, now = Date.now() }) {

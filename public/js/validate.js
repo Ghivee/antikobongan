@@ -20,7 +20,7 @@ export function parseTopic(topic, prefix) {
 }
 
 export function parseStatus(text) {
-  const value = String(text || '').trim().toLowerCase();
+  const value = String(text ?? '').trim();
   return value === 'online' || value === 'offline' ? value : null;
 }
 

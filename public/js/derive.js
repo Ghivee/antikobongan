@@ -3,7 +3,8 @@
 import { state } from './store.js';
 import { fmtAge, fmtDateTime } from './format.js';
 
-const LIVE_OK_MS = 30e3;
+// Stale data sensor: 15 detik = 5 x interval kirim 3 detik (mode uji realtime).
+export const SENSOR_STALE_MS = 15e3;
 const NODE_WARN_MS = 5 * 60e3;
 const HEARTBEAT_OK_MS = 2 * 60e3;
 const HEARTBEAT_WARN_MS = 10 * 60e3;
@@ -44,21 +45,41 @@ export function lastSeen(nodeId) {
   return values.length ? Math.max(...values) : null;
 }
 
-export function nodeLink(nodeId, now = Date.now()) {
+// Status node dari broker (LWT/retained), TERPISAH dari status data sensor.
+export function nodeStatusLink(nodeId, now = Date.now()) {
   const live = state.live[nodeId];
-  const seen = lastSeen(nodeId);
-  if (live && live.lwt && live.lwt.state === 'offline' && (!seen || live.lwt.at >= seen)) {
-    return { st: 'bad', state: 'Offline', detail: `Broker melaporkan node terputus ${fmtAge(live.lwt.at, now)}.` };
+  const lwt = live && live.lwt;
+  if (!lwt || !lwt.state) {
+    return { st: 'idle', state: 'Belum diketahui', detail: 'Broker belum mengirim status online/offline untuk node ini.' };
   }
+  const retained = lwt.retained
+    ? ' Nilai retained dari broker: status terakhir diketahui, bukan bukti data baru.'
+    : '';
+  if (lwt.state === 'offline') {
+    return { st: 'bad', state: 'Offline', detail: `Broker melaporkan node terputus ${fmtAge(lwt.at, now)}.${retained}` };
+  }
+  return { st: 'ok', state: 'Online', detail: `Broker melaporkan node online ${fmtAge(lwt.at, now)}.${retained}` };
+}
+
+// Status data sensor: apakah node masih mengirim pembacaan.
+export function sensorLink(nodeId, now = Date.now()) {
+  const seen = lastSeen(nodeId);
   if (!seen) {
     const loading = !state.latest[nodeId];
     return { st: loading ? 'idle' : 'bad', state: loading ? 'Memeriksa…' : 'Belum ada data', detail: 'Belum pernah ada pembacaan dari node ini.' };
   }
   const age = now - seen;
   const detail = `Pembacaan terakhir ${fmtDateTime(seen)} (${fmtAge(seen, now)}).`;
-  if (age <= LIVE_OK_MS) return { st: 'ok', state: 'Mengirim', detail };
+  if (age <= SENSOR_STALE_MS) return { st: 'ok', state: 'Mengirim', detail };
   if (age <= NODE_WARN_MS) return { st: 'warn', state: 'Tertunda', detail };
   return { st: 'bad', state: 'Tidak mengirim', detail };
+}
+
+// Ringkasan satu node untuk daftar/peta: offline broker menang, lalu data sensor.
+export function nodeLink(nodeId, now = Date.now()) {
+  const broker = nodeStatusLink(nodeId, now);
+  if (broker.st === 'bad') return broker;
+  return sensorLink(nodeId, now);
 }
 
 function brokerLink() {
@@ -111,17 +132,24 @@ function databaseLink(nodeId, now) {
 
 export function chain(nodeId, now = Date.now()) {
   const links = [
-    { key: 'node', title: 'Node', ...nodeLink(nodeId, now) },
-    { key: 'broker', title: 'Broker', ...brokerLink() },
+    { key: 'node', title: 'Node (broker)', ...nodeStatusLink(nodeId, now) },
+    { key: 'sensor', title: 'Sensor (data)', ...sensorLink(nodeId, now) },
+    { key: 'broker', title: 'Broker (dasbor)', ...brokerLink() },
     { key: 'logger', title: 'Pencatat', ...loggerLink(nodeId, now) },
     { key: 'db', title: 'Database', ...databaseLink(nodeId, now) },
   ];
   const worst = links.find((l) => l.st === 'bad') || links.find((l) => l.st === 'warn');
+  const idle = links.filter((l) => l.st === 'idle');
   let headline;
-  if (!worst) headline = links.some((l) => l.st === 'idle') ? 'Memeriksa sistem…' : 'Semua mata rantai normal';
-  else if (worst.key === 'node') {
+  if (!worst) {
+    if (!idle.length) headline = 'Semua mata rantai normal';
+    else if (idle.length === 1 && idle[0].key === 'node') headline = 'Data sensor aktif · status broker belum diketahui';
+    else if (idle.length === 1 && idle[0].key === 'sensor') headline = 'Node online · menunggu data sensor';
+    else headline = 'Memeriksa sistem…';
+  } else if (worst.key === 'node') headline = `Node ${worst.state.toLowerCase()}`;
+  else if (worst.key === 'sensor') {
     const seen = lastSeen(nodeId);
-    headline = seen ? `Node ${worst.state.toLowerCase()} · data terakhir ${fmtAge(seen, now)}` : 'Node belum mengirim data';
+    headline = seen ? `Sensor ${worst.state.toLowerCase()} · data terakhir ${fmtAge(seen, now)}` : 'Sensor belum mengirim data';
   } else headline = `${worst.title}: ${worst.state.toLowerCase()}`;
   return { links, headline };
 }

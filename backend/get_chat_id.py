@@ -70,7 +70,8 @@ def main() -> int:
     if not seen:
         print("Update ada, tetapi tidak berisi chat id. Kirim pesan langsung ke bot.")
         return 1
-    print("\nSalin chat_id ke TELEGRAM_CHAT_ID di backend/.env (jangan bagikan token).")
+    print("\nSalin chat_id ke TELEGRAM_CHAT_ID di backend/.env.")
+    print("Beberapa chat id boleh dipisah koma; pesan tanpa mention terlihat oleh semua anggota.")
     return 0
 
 

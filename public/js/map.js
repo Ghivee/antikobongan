@@ -9,6 +9,9 @@ const COLORS = { ok: '#4FB37E', warn: '#E3BC3F', bad: '#F0565B', idle: '#6B7069'
 let map = null;
 let layer = null;
 let lastBoundsSig = '';
+// Marker disimpan per node dan diperbarui di tempat. Jangan hapus-semua lalu
+// gambar ulang: popup yang sedang dibuka akan ikut hilang saat data baru masuk.
+const markers = new Map();
 
 export function initMap(el) {
   if (!window.L) return false;
@@ -27,27 +30,49 @@ function popup(m) {
 }
 
 // markers: [{ id, lat, lon, conn, active, title, rows: [[label, value]] }]
-export function renderMarkers(markers, { onSelect }) {
+export function renderMarkers(list, { onSelect }) {
   if (!map) return;
-  layer.clearLayers();
-  for (const m of markers) {
-    window.L.circleMarker([m.lat, m.lon], {
+  const seen = new Set();
+  for (const m of list) {
+    seen.add(m.id);
+    let marker = markers.get(m.id);
+    if (!marker) {
+      marker = window.L.circleMarker([m.lat, m.lon], {
+        radius: m.active ? 10 : 7,
+        color: m.active ? '#E8E4D8' : '#0E100F',
+        weight: 2,
+        fillColor: COLORS[m.conn] || COLORS.idle,
+        fillOpacity: 0.95,
+      })
+        .on('click', () => onSelect(m.id))
+        .addTo(layer);
+      markers.set(m.id, marker);
+    }
+    marker.setLatLng([m.lat, m.lon]);
+    marker.setStyle({
       radius: m.active ? 10 : 7,
       color: m.active ? '#E8E4D8' : '#0E100F',
       weight: 2,
       fillColor: COLORS[m.conn] || COLORS.idle,
       fillOpacity: 0.95,
-    })
-      .bindPopup(popup(m))
-      .bindTooltip(m.title, { direction: 'top', offset: [0, -8] })
-      .on('click', () => onSelect(m.id))
-      .addTo(layer);
+    });
+    // Perbarui isi popup/tooltip tanpa menutup popup yang sedang terbuka.
+    if (marker.getPopup()) marker.setPopupContent(popup(m));
+    else marker.bindPopup(popup(m));
+    if (marker.getTooltip()) marker.setTooltipContent(m.title);
+    else marker.bindTooltip(m.title, { direction: 'top', offset: [0, -8] });
   }
-  const sig = markers.map((m) => `${m.lat},${m.lon}`).join('|');
+  for (const [id, marker] of markers) {
+    if (!seen.has(id)) {
+      marker.remove();
+      markers.delete(id);
+    }
+  }
+  const sig = list.map((m) => `${m.lat},${m.lon}`).join('|');
   if (sig !== lastBoundsSig) {
     lastBoundsSig = sig;
-    if (markers.length === 1) map.setView([markers[0].lat, markers[0].lon], 13);
-    else if (markers.length) map.fitBounds(markers.map((m) => [m.lat, m.lon]), { padding: [32, 32], maxZoom: 14 });
+    if (list.length === 1) map.setView([list[0].lat, list[0].lon], 13);
+    else if (list.length) map.fitBounds(list.map((m) => [m.lat, m.lon]), { padding: [32, 32], maxZoom: 14 });
     else map.setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
   }
 }

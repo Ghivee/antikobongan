@@ -93,7 +93,7 @@ html, body { height: 100%; overflow: hidden; }
 .st-item { display: flex; align-items: center; gap: 6px; padding: 0 10px; white-space: nowrap; min-width: 0; }
 .st-item + .st-item { border-left: 1px solid var(--line); }
 .st-item .dot { width: 7px; height: 7px; }
-.st-name { color: var(--text-1); font-weight: 500; }
+.st-name { color: var(--text-1); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
 .st-val { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
 .st-item.st-bad .st-val { color: var(--risk-kritis); }
 .st-item.st-warn .st-val { color: var(--risk-sedang); }
@@ -207,13 +207,17 @@ html.is-resizing-y, html.is-resizing-y * { cursor: row-resize !important; }
 #col-main.map-focus #mid { display: none; }
 
 /* Risiko */
-.risk-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--lv); background: color-mix(in srgb, var(--lv) 15%, transparent); }
+.risk-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--lv); background: color-mix(in srgb, var(--lv) 15%, transparent); max-width: 100%; overflow-wrap: anywhere; }
 .risk-badge:empty { display: none; }
+/* Label proposal panjang: biarkan header membungkus, bukan meluber. */
+#risk .panel-head { flex-wrap: wrap; row-gap: 6px; }
+#risk .panel-title { min-width: 0; }
 .gauge-row { display: flex; align-items: center; gap: 14px; }
-.gauge { position: relative; width: 132px; height: 76px; flex: none; }
+.gauge { position: relative; width: 132px; height: 84px; flex: none; }
 .gauge svg { display: block; width: 100%; height: auto; }
-.gauge-num { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 34px; font-weight: 600; line-height: 1; }
-.gauge-num small { font-size: 13px; color: var(--text-3); font-weight: 400; }
+/* Angka digambar di dalam SVG agar tidak menabrak busur setengah lingkaran. */
+.gauge-score { font-size: 32px; font-weight: 600; fill: var(--text-1); }
+.gauge-unit { font-size: 11px; fill: var(--text-3); }
 .risk-when { color: var(--text-2); font-size: 13px; }
 .risk-when strong { color: var(--text-1); font-weight: 500; display: block; }
 .risk-trend { color: var(--text-3); font-size: 12px; margin-top: 4px; }
@@ -237,7 +241,7 @@ html.is-resizing-y, html.is-resizing-y * { cursor: row-resize !important; }
 .risk-note { margin-top: 10px; padding: 9px 11px; border-left: 3px solid var(--lv); background: var(--raised); border-radius: 0 6px 6px 0; font-size: 13px; }
 .risk-note.is-stale { border-left-color: var(--risk-sedang); }
 .risk-note strong { color: var(--risk-sedang); }
-#risk.is-stale .gauge-num, #risk.is-stale .gauge svg { opacity: .5; }
+#risk.is-stale .gauge svg { opacity: .5; }
 .empty { color: var(--text-2); font-size: 13px; }
 .empty p + p { margin-top: 6px; }
 
@@ -355,17 +359,29 @@ html.is-resizing-y, html.is-resizing-y * { cursor: row-resize !important; }
 #events-foot { margin-top: 10px; }
 #events-foot .btn-small { width: 100%; }
 
-.io-section { margin-top: 12px; }
+/* Kartu I/O bertumpuk: nama + nilai di baris atas, detail hardware di bawah.
+   Tidak ada kolom sempit atau nowrap yang membuat teks bertabrakan. */
+.io-section { margin-top: 16px; }
+.io-section:first-child { margin-top: 4px; }
 .io-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
-.io-section > p { font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
-.io-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
-.io-item:last-child { border-bottom: 0; }
-.io-name { font-size: 13px; font-weight: 500; }
-.io-hw { font-size: 12px; color: var(--text-3); }
-.io-val { text-align: right; font-size: 13px; display: grid; justify-items: end; align-content: start; }
-.io-val span { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.io-section > p { font-size: 12px; color: var(--text-3); margin-bottom: 8px; }
+.io-list { display: grid; gap: 8px; }
+.io-card { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; display: grid; gap: 4px; min-width: 0; }
+.io-row { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 10px; flex-wrap: wrap; min-width: 0; }
+.io-name { font-size: 13px; font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.io-value { font-size: 13px; font-weight: 600; text-align: right; margin-left: auto; overflow-wrap: anywhere; }
+.io-hw { font-size: 12px; color: var(--text-3); line-height: 1.4; overflow-wrap: anywhere; }
+.io-note { font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
 .io-state { display: inline-flex; align-items: center; gap: 6px; }
-.io-flow { font-size: 12px; color: var(--text-3); background: var(--raised); border-radius: 6px; padding: 8px 10px; margin-top: 10px; }
+.io-limit { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.io-limit:last-child { border-bottom: 0; }
+.io-limit-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--none); margin-top: 4px; }
+.io-limit .lv-mark { margin-top: 4px; }
+.io-limit-body { display: grid; gap: 2px; min-width: 0; }
+.io-limit-top { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 8px; flex-wrap: wrap; }
+.io-limit-name { font-size: 13px; font-weight: 500; }
+.io-limit-range { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.io-limit-note { font-size: 12px; color: var(--text-3); overflow-wrap: anywhere; }
 
 .hist-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
 .hist-table th { text-align: right; color: var(--text-3); font-weight: 500; padding: 4px 4px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
@@ -453,8 +469,7 @@ html.is-resizing-y, html.is-resizing-y * { cursor: row-resize !important; }
   .st-item.st-ok .st-val { display: none; }
   .factor { grid-template-columns: 82px minmax(0, 1fr) auto; gap: 6px; }
   .factor-val { white-space: nowrap; }
-  .gauge { width: 112px; height: 66px; }
-  .gauge-num { font-size: 30px; }
+  .gauge { width: 116px; height: 74px; }
   .chain-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 /* Terlalu sempit atau terlalu pendek untuk satu layar: susun satu kolom, halaman digulir. */
@@ -485,11 +500,15 @@ html.is-resizing-y, html.is-resizing-y * { cursor: row-resize !important; }
   .brand { flex: 1; }
   .topbar-right { display: contents; }
   .menu { order: 1; }
-  .status-strip { order: 2; flex: 1 0 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); height: 32px; }
-  .st-item { justify-content: center; padding: 0 4px; }
+  .status-strip { order: 2; flex: 1 0 100%; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: 34px; }
+  .st-item { justify-content: center; padding: 0 2px; gap: 3px; font-size: 11px; }
+  .st-item .dot { width: 6px; height: 6px; }
+  .st-name { overflow: hidden; text-overflow: ellipsis; }
   .st-val { display: none; }
   #clock { display: none; }
   #metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Jumlah kartu ganjil: kartu terakhir melebar penuh agar tidak ada lubang kosong. */
+  #metrics:has(> .met:nth-of-type(odd):last-of-type) > .met:last-of-type { grid-column: 1 / -1; }
   .met-value { font-size: 24px; }
   .met-time { white-space: normal; }
   .spark-cap span:first-child { display: none; }
@@ -499,4 +518,10 @@ html.is-resizing-y, html.is-resizing-y * { cursor: row-resize !important; }
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   #chart-expand, #map-expand { display: none; }
   .map-overlay { left: 56px; right: 8px; top: 8px; max-width: none; }
+}
+/* Ponsel sempit: rapatkan lagi bilah status agar lima kolom tetap muat. */
+@media (max-width: 420px) {
+  .status-strip { height: 32px; }
+  .st-item { padding: 0 1px; gap: 2px; font-size: 10px; }
+  .st-item .dot { width: 5px; height: 5px; }
 }

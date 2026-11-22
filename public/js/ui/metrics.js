@@ -2,12 +2,12 @@
 // terakhir digambar samar di latar kartu.
 
 import { state } from '../store.js';
-import { current } from '../derive.js';
+import { current, SENSOR_STALE_MS } from '../derive.js';
 import { fill, h } from '../dom.js';
 import { fmtAge, fmtDateTime, fmtNum } from '../format.js';
 import { buildModel, createSpark, extent, metricDef } from '../charts.js';
 
-const STALE_MS = 5 * 60e3;
+const STALE_MS = SENSOR_STALE_MS;
 const CARDS = [
   { metric: 'suhu', field: 'suhu' },
   { metric: 'rh', field: 'kelembapan' },
@@ -16,6 +16,20 @@ const CARDS = [
   { metric: 'tekanan', field: 'tekanan', optional: true },
 ];
 const cards = new Map();
+
+// Selisih nilai pertama dan terakhir di jendela grafik (1 jam).
+function trendOver(model, key) {
+  if (!model) return null;
+  let first = null;
+  let last = null;
+  for (const row of model.rows) {
+    const v = row[key] && row[key].avg;
+    if (v === null || v === undefined) continue;
+    if (first === null) first = v;
+    last = v;
+  }
+  return first === null ? null : last - first;
+}
 
 export function mountMetrics(el, onPick) {
   for (const c of CARDS) {
@@ -56,10 +70,17 @@ export function renderMetrics({ now = Date.now(), sparkChanged = false } = {}) {
     card.classList.toggle('is-stale', stale);
     fill(c.value, hasValue ? fmtNum(raw, def.dec) : '—', hasValue ? h('small', { text: def.unit }) : null);
     const prev = cur && cur.prev ? cur.prev[c.field] : null;
-    if (hasValue && prev !== null && prev !== undefined && !stale) {
-      const d = raw - prev;
-      c.delta.textContent = Math.abs(d) < 10 ** -def.dec / 2 ? 'tetap' : `${d > 0 ? '▲' : '▼'} ${fmtNum(Math.abs(d), def.dec)}`;
-      c.delta.title = 'Perubahan dari pembacaan sebelumnya';
+    let delta = null;
+    let basis = 'Perubahan dari pembacaan sebelumnya';
+    if (c.metric === 'tekanan' && sparkModel) {
+      delta = trendOver(sparkModel, def.key);
+      basis = 'Perubahan 1 jam terakhir';
+    } else if (prev !== null && prev !== undefined) {
+      delta = raw - prev;
+    }
+    if (hasValue && delta !== null && delta !== undefined && !stale) {
+      c.delta.textContent = Math.abs(delta) < 10 ** -def.dec / 2 ? 'tetap' : `${delta > 0 ? '▲' : '▼'} ${fmtNum(Math.abs(delta), def.dec)}`;
+      c.delta.title = basis;
     } else {
       c.delta.textContent = '';
     }

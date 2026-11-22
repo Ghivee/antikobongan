@@ -48,7 +48,7 @@ export async function startMqtt({ onState, onSensor, onStatus }) {
     log(`Galat broker: ${error.message}`, 'err');
   });
 
-  client.on('message', (topic, payload) => {
+  client.on('message', (topic, payload, packet) => {
     if (payload.length > MAX_PAYLOAD) {
       log(`Pesan terlalu besar diabaikan (${payload.length} byte).`, 'warn');
       return;
@@ -65,7 +65,7 @@ export async function startMqtt({ onState, onSensor, onStatus }) {
         log(`Status node ${parsed.nodeId} tidak dikenal; diabaikan.`, 'warn');
         return;
       }
-      onStatus(parsed.nodeId, status);
+      onStatus(parsed.nodeId, status, Boolean(packet && packet.retain));
       return;
     }
     const result = validateSensor(text);

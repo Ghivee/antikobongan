@@ -54,7 +54,10 @@ class Config:
     supabase_secret_key: str = field(default="", repr=False)
     telegram_bot_token: str = field(default="", repr=False)
     telegram_chat_id: str = field(default="", repr=False)
-    stale_seconds: int = 30
+    telegram_commands: bool = True
+    telegram_allow_unknown: bool = True
+    control_port: int = 47831
+    stale_seconds: int = 15
     retention_days: int = 90
     alert_risk_high: int = 60
     alert_risk_critical: int = 80
@@ -65,12 +68,21 @@ class Config:
         return f"{self.topic_prefix.rstrip('/')}/{self.node_id}/sensor"
 
     @property
+    def status_topic(self) -> str:
+        return f"{self.topic_prefix.rstrip('/')}/{self.node_id}/status"
+
+    @property
     def supabase_configured(self) -> bool:
         return bool(self.supabase_url and self.supabase_secret_key)
 
     @property
     def telegram_configured(self) -> bool:
         return bool(self.telegram_bot_token and self.telegram_chat_id)
+
+    @property
+    def telegram_bot_ready(self) -> bool:
+        """Bot tanya-jawab bisa jalan hanya dengan token (tanpa chat id)."""
+        return bool(self.telegram_bot_token and self.telegram_commands)
 
 
 def load_config(env_path: Path | None = None) -> Config:
@@ -106,7 +118,10 @@ def load_config(env_path: Path | None = None) -> Config:
         supabase_secret_key=_text("SUPABASE_SECRET_KEY"),
         telegram_bot_token=_text("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=_text("TELEGRAM_CHAT_ID"),
-        stale_seconds=_integer("STALE_SECONDS", 30, 1),
+        telegram_commands=_flag("TELEGRAM_COMMANDS", True),
+        telegram_allow_unknown=_flag("TELEGRAM_ALLOW_UNKNOWN", True),
+        control_port=_integer("BACKEND_CONTROL_PORT", 47831, 1024),
+        stale_seconds=_integer("STALE_SECONDS", 15, 1),
         retention_days=retention_days,
         alert_risk_high=_integer("ALERT_RISK_HIGH", 60, 0),
         alert_risk_critical=_integer("ALERT_RISK_CRITICAL", 80, 0),
