@@ -1,25 +1,31 @@
 {
-  "name": "antikobongan-dashboard",
-  "version": "2.0.0",
+  "name": "antikobongan",
+  "version": "1.0.0",
   "private": true,
-  "description": "AntiKobongan — dasbor pemantauan risiko kebakaran hutan (ESP32 + MQTT + Supabase).",
-  "main": "server.js",
+  "description": "IoT-based mobile application to detect cooking burning sensation using ESP32 and Bluetooth.",
+  "main": "src/server.ts",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "vendor": "node tools/vendor.js",
-    "test": "node --test \"test/*.test.js\" \"test/*.test.mjs\"",
-    "check": "node --check server.js && for f in api/*.js lib/*.js lib/handlers/*.js tools/*.js; do node --check \"$f\" || exit 1; done"
+    "start": "node src/server.ts",
+    "dev": "nodemon src/server.ts",
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "mqtt": "^5.16.0",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
-    "@fontsource/public-sans": "5.3.0",
-    "chart.js": "4.5.1",
-    "chartjs-adapter-date-fns": "3.0.0",
-    "leaflet": "1.9.4",
-    "mqtt": "5.16.0"
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2",
+    "typescript": "^5.3.2"
   },
   "engines": {
     "node": ">=18"
