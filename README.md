@@ -1,94 +1,45 @@
 ﻿# AntiKobongan
 
-> Short description of what this project does and who it's for.
+Aplikasi untuk mendeteksi kobongan saat memasak. Bisa dipakai di HP dengan bantuan ESP32.
 
-## Features
+## Fitur Utama (Features)
 
-- Feature 1: Main feature description
-- Feature 2: Secondary feature description
-- Feature 3: Additional feature description
+- Deteksi kobongan secara real-time
+- Bisa dipakai di HP (Android/iOS) via ESP32
+- Tampilan sederhana dan mudah dipakai
+- Hemat daya
+
+- Real-time burning sensation detection
+- Can be used on mobile (Android/iOS) via ESP32
+- Simple and easy to use interface
+- Low power consumption
+
+## Cara Pakai (How to Use)
+
+### Indonesia:
+1. Install aplikasi di HP
+2. Hubungkan ke ESP32 via Bluetooth
+3. Masukkan panganan yang sedang dimasak
+4. Aplikasi akan memberi tahu jika sudah mulai kobongan
+
+### English:
+1. Install app on mobile
+2. Connect to ESP32 via Bluetooth
+3. Enter food being cooked
+4. App will notify if burning sensation starts
 
 ## Tech Stack
 
-- Framework: React / Next.js / Vue / Flutter / Vite
-- Styling: Tailwind CSS / CSS Modules
-- Database: Supabase
-- Backend: Node.js / Python / Firebase
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+ (for web projects)
-- Flutter 3.0+ (for mobile projects)
-- Git
-
-### Installation
-
-1. Clone the repository:
-   `ash
-   git clone https://github.com/Ghivee/AntiKobongan.git
-   cd AntiKobongan
-   `
-
-2. Install dependencies:
-   `ash
-   npm install
-   # or
-   flutter pub get
-   `
-
-3. Run the project:
-   `ash
-   npm run dev
-   # or
-   flutter run
-   `
-
-4. Open your browser:
-   `
-   http://localhost:3000
-   `
-
-## Project Structure
-
-`
-AntiKobongan/
-â”œâ”€â”€ src/
-â”‚   â”œâ”€â”€ components/
-â”‚   â”œâ”€â”€ pages/
-â”‚   â”œâ”€â”€ lib/
-â”‚   â””â”€â”€ styles/
-â”œâ”€â”€ public/
-â”‚   â””â”€â”€ assets/
-â”œâ”€â”€ package.json
-â”œâ”€â”€ README.md
-â””â”€â”€ .gitignore
-`
-
-## Screenshots
-
-**Screenshots folder:** [screenshots/](screenshots/)
-
-**How to add screenshots:**
-1. Open project in browser (npm run dev)
-2. Use screenshot tools: Windows Snipping Tool, ShareX, or browser dev tools
-3. Save screenshots to screenshots/ folder
-4. Name files clearly: screenshot-1.png, screenshot-2.png
-5. Update README with filenames
-
-**Tips:**
-- Use 1920x1080 or higher for desktop
-- Use 375x667 or higher for mobile
-- Include full context: header, navigation, content
-- Include interactive states: filled forms, loaded data
+- **Frontend:** React Native
+- **Backend:** ESP32 dengan Arduino
+- **Communication:** Bluetooth
 
 ## Author
 
-**Galang Ahmad Ghifari**
-- Website: https://ghifariahmad212.github.io
-- GitHub: https://github.com/Ghivee
+Galang Ahmad Ghifari
+Website: https://ghifariahmad212.github.io
+GitHub: https://github.com/Ghivee
 
 ## License
 
-Personal portfolio project.
+Personal project
