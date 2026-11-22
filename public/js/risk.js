@@ -1,14 +1,16 @@
 // Tingkat & rumus risiko. Rumus HARUS sama dengan calcRiskScore di
-// esp32_firmware.ino (formula_version 1).
+// antikobongan-2.ino (formula_version 1).
 
 export const LEVELS = ['NORMAL', 'SEDANG', 'TINGGI', 'KRITIS'];
 export const THRESHOLDS = { SEDANG: 40, TINGGI: 60, KRITIS: 80 };
 
+// Label kelas mengikuti proposal: Normal, Siaga Cuaca Kering,
+// Waspada Bara dan Asap, Kebakaran Aktif.
 export const LEVEL_INFO = {
   NORMAL: { label: 'Normal', note: 'Semua parameter dalam batas aman. Tidak perlu tindakan.' },
-  SEDANG: { label: 'Sedang', note: 'Beberapa parameter mendekati ambang. Tingkatkan frekuensi pemantauan.' },
-  TINGGI: { label: 'Tinggi', note: 'Risiko tinggi. Siapkan tim tanggap dan pantau lokasi secara intensif.' },
-  KRITIS: { label: 'Kritis', note: 'Kondisi kritis. Kirim tim tanggap ke lokasi dan siapkan protokol evakuasi.' },
+  SEDANG: { label: 'Siaga Cuaca Kering', note: 'Udara mulai kering dan bahan bakar mudah terbakar. Tingkatkan pemantauan.' },
+  TINGGI: { label: 'Waspada Bara dan Asap', note: 'Ada indikasi bara atau asap. Siapkan tim tanggap dan pantau lokasi intensif.' },
+  KRITIS: { label: 'Kebakaran Aktif', note: 'Api aktif terdeteksi. Kirim tim tanggap dan siapkan protokol evakuasi.' },
 };
 
 export function levelOf(score) {

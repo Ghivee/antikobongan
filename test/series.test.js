@@ -46,3 +46,11 @@ test('agregasi per bucket menghitung rata-rata, min, maks, dan n', () => {
   assert.deepEqual(cols.n, [2, 1]);
   assert.equal(cols.t[0], Date.parse('2026-10-25T16:54:00Z'));
 });
+
+test('tekanan tetap 2 desimal setelah pembulatan kolom', () => {
+  const cols = toColumns([
+    { t: '2026-10-25T16:54:00Z', n: 4, tekanan_avg: 973.126 },
+    { t: '2026-10-25T16:56:00Z', n: 4, tekanan_avg: 973.181 },
+  ]);
+  assert.deepEqual(cols.tekanan_avg, [973.13, 973.18]);
+});

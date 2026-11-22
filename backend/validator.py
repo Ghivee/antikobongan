@@ -19,6 +19,7 @@ OPTIONAL_RANGES = {
     "gas_excess": (0.0, 4095.0),
 }
 VALID_STATUS = {"NORMAL", "SEDANG", "TINGGI", "KRITIS"}
+VALID_NODE_STATUS = {"online", "offline"}
 
 
 @dataclass
@@ -35,6 +36,25 @@ class ValidationResult:
 
 def sensor_topic(prefix: str, node_id: str) -> str:
     return f"{prefix.rstrip('/')}/{node_id}/sensor"
+
+
+def status_topic(prefix: str, node_id: str) -> str:
+    return f"{prefix.rstrip('/')}/{node_id}/status"
+
+
+def validate_status(payload: bytes | str) -> str | None:
+    """Kembalikan 'online'/'offline' bila sah, selain itu None (harus dibuang)."""
+    if isinstance(payload, bytes):
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    else:
+        text = payload
+    if not isinstance(text, str):
+        return None
+    value = text.strip()
+    return value if value in VALID_NODE_STATUS else None
 
 
 def _reject_constant(value: str) -> None:

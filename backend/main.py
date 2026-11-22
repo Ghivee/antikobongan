@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import logging
 import random
+import socket
 import sys
 import threading
 import time
@@ -22,22 +23,45 @@ import paho.mqtt.client as mqtt
 
 try:  # dukung `python -m backend.main` maupun `python backend\main.py`
     from .alerts import RiskAlertTracker
+    from .commands import (
+        BOT_COMMANDS,
+        CommandHandler,
+        DataService,
+        TelegramCommandBot,
+        register_bot_commands,
+    )
     from .config import BASE_DIR, Config, ConfigError, load_config
-    from .notifier import TelegramNotifier
+    from .labels import ALERT_LEVEL, LEVEL_ACTION, level_text
+    from .notifier import TelegramNotifier, parse_chat_ids
     from .store import StorageWorker, SupabaseRest
-    from .validator import ValidationResult, validate_message
+    from .validator import ValidationResult, validate_message, validate_status
 except ImportError:
     from alerts import RiskAlertTracker
+    from commands import (
+        BOT_COMMANDS,
+        CommandHandler,
+        DataService,
+        TelegramCommandBot,
+        register_bot_commands,
+    )
     from config import BASE_DIR, Config, ConfigError, load_config
-    from notifier import TelegramNotifier
+    from labels import ALERT_LEVEL, LEVEL_ACTION, level_text
+    from notifier import TelegramNotifier, parse_chat_ids
     from store import StorageWorker, SupabaseRest
-    from validator import ValidationResult, validate_message
+    from validator import ValidationResult, validate_message, validate_status
 
 WIB = timezone(timedelta(hours=7))
 LOGGER_NAME = "antikobongan"
-# Versi rumus risiko firmware (lihat calcRiskScore di esp32_firmware.ino).
+# Versi rumus risiko firmware (lihat calcRiskScore di antikobongan-2.ino).
 FORMULA_VERSION = 1
-LEVEL_TEXT = {"HIGH": "TINGGI", "CRITICAL": "KRITIS", "NORMAL": "NORMAL"}
+
+
+def num(value: Any, decimals: int = 0) -> str:
+    """Angka gaya Indonesia: koma desimal, tanpa simbol tambahan."""
+    if value is None:
+        return ""
+    text = f"{float(value):.{decimals}f}"
+    return text.replace(".", ",")
 
 
 def utc_now_iso() -> str:
@@ -93,11 +117,59 @@ def reading_row(result: ValidationResult, node_id: str, received_at: str) -> dic
 def risk_summary(kind: str, level: str, score: int, row: dict[str, Any]) -> str:
     """Kalimat satu baris untuk kolom events.message (dibaca dasbor)."""
     if kind == "RISK_RECOVERED":
-        return f"Risiko kembali normal: skor {score}/100"
-    parts = [f"suhu {row['suhu']:g} °C", f"kelembapan {row['kelembapan']:g} %", f"gas {row['gas']} ADC"]
+        return f"Kembali Normal. Skor {score} dari 100."
+    parts = [
+        f"suhu {num(row['suhu'], 1)} °C",
+        f"kelembapan udara {num(row['kelembapan'], 1)} %",
+        f"gas dan asap {num(row['gas'])} ADC",
+    ]
     if row.get("kelembapan_tanah") is not None:
-        parts.append(f"tanah {row['kelembapan_tanah']:g} %")
-    return f"Risiko {LEVEL_TEXT.get(level, level)} {score}/100 — " + ", ".join(parts)
+        parts.append(f"tanah {num(row['kelembapan_tanah'])} %")
+    if row.get("tekanan") is not None:
+        parts.append(f"tekanan {num(row['tekanan'], 2)} hPa")
+    return f"Status {level_text(level)}. Skor {score} dari 100. " + ", ".join(parts) + "."
+
+
+CONTROL_HOST = "127.0.0.1"
+
+
+def acquire_control_socket(port: int) -> socket.socket | None:
+    """Kunci satu-instance: hanya satu backend yang boleh memakai port ini."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((CONTROL_HOST, port))
+    except OSError:
+        sock.close()
+        return None
+    sock.listen(5)
+    sock.settimeout(1.0)
+    return sock
+
+
+def request_stop(port: int) -> int:
+    """Minta backend yang sedang berjalan berhenti dengan rapi."""
+    try:
+        with socket.create_connection((CONTROL_HOST, port), timeout=3) as conn:
+            conn.sendall(b"stop\n")
+            conn.settimeout(3)
+            try:
+                conn.recv(64)
+            except OSError:
+                pass
+    except OSError:
+        print("Tidak ada backend AntiKobongan yang sedang berjalan.")
+        return 0
+    print("Permintaan berhenti dikirim; menunggu backend selesai...")
+    for _ in range(60):
+        time.sleep(0.5)
+        try:
+            with socket.create_connection((CONTROL_HOST, port), timeout=1):
+                pass
+        except OSError:
+            print("Backend sudah berhenti.")
+            return 0
+    print("Backend belum berhenti; hentikan manual dengan Ctrl+C di jendelanya.")
+    return 1
 
 
 class BackendApp:
@@ -113,12 +185,34 @@ class BackendApp:
             cooldown_seconds=cfg.alert_cooldown_seconds,
         )
         self.client = self._make_client()
+        self.commands = self._make_commands()
         self._last_valid_mono: float | None = None
         self._last_valid_iso: str | None = None
         self._online: bool | None = None
         self._last_status_upsert: float = 0.0
+        self._last_status_notice: tuple[str, float] | None = None
         self._stop = threading.Event()
+        self._control: socket.socket | None = None
+        self._control_thread: threading.Thread | None = None
         self._retention_thread = threading.Thread(target=self._retention_loop, name="retention", daemon=True)
+
+    def _make_commands(self) -> TelegramCommandBot | None:
+        """Bot perintah Telegram (long polling) bila token terisi.
+
+        Bot bersifat publik, jadi tidak wajib ada TELEGRAM_CHAT_ID.
+        """
+        if not self.cfg.telegram_bot_ready:
+            return None
+        data = DataService(self.supabase, self.cfg.node_id, self.cfg.stale_seconds, self.logger)
+        handler = CommandHandler(data, self.cfg.node_id, self.cfg.sensor_topic, self.cfg.stale_seconds)
+        return TelegramCommandBot(
+            self.cfg.telegram_bot_token,
+            parse_chat_ids(self.cfg.telegram_chat_id),
+            handler,
+            self.logger,
+            allow_unknown=self.cfg.telegram_allow_unknown,
+            notifier=self.notifier,
+        )
 
     def _make_client(self) -> mqtt.Client:
         client_id = f"ak-backend-{random.randrange(0x100000, 0x1000000):06x}"
@@ -167,14 +261,25 @@ class BackendApp:
 
     def on_message(self, client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage) -> None:
         if message.topic == self.status_topic:
-            status_text = message.payload.decode("utf-8", errors="ignore").strip().lower()
+            raw_text = message.payload.decode("utf-8", errors="replace").strip()
+            status_text = validate_status(message.payload)
+            if status_text is None:
+                self.logger.warning(
+                    "Status diabaikan: nilai %r tidak sah (hanya online/offline).", raw_text[:32]
+                )
+                return
             if status_text == "offline":
                 if self._online is not False:
-                    silence = time.monotonic() - (self._last_valid_mono or time.monotonic())
+                    silence = (time.monotonic() - self._last_valid_mono) if self._last_valid_mono else None
                     self._mark_offline(silence)
                     self.logger.info("Status LWT diterima: node %s offline.", self.cfg.node_id)
             elif status_text == "online":
-                if self._online is not True:
+                if self._online is None:
+                    # Status retained saat backend baru mulai bukan transisi nyata.
+                    self._online = True
+                    self._upsert_status(force=True)
+                    self.logger.info("Status retained: node %s online (tanpa notifikasi).", self.cfg.node_id)
+                elif self._online is not True:
                     self._mark_online()
                     self.logger.info("Status diterima: node %s online.", self.cfg.node_id)
             return
@@ -221,21 +326,35 @@ class BackendApp:
 
     def _handle_risk_alert(self, kind: str, level: str, score: int, row: dict[str, Any]) -> None:
         summary = risk_summary(kind, level, score, row)
+        label = level_text(level)
         if kind == "RISK_RECOVERED":
             message = (
-                f"AntiKobongan: kondisi membaik\n"
-                f"Node: {self.cfg.node_id}\nSkor: {score}/100\nWaktu: {wib_now_text()}"
+                "AntiKobongan\n"
+                "Status: Normal\n"
+                f"Node: {self.cfg.node_id}\n"
+                f"Skor risiko: {score} dari 100\n"
+                f"Waktu: {wib_now_text()}\n"
+                "Kondisi kembali di bawah ambang Waspada Bara dan Asap."
             )
         else:
-            message = (
-                f"AntiKobongan: {kind}\n"
-                f"Node: {self.cfg.node_id}\n"
-                f"Skor: {score}/100 ({LEVEL_TEXT.get(level, level)})\n"
-                f"Suhu: {row['suhu']} C\n"
-                f"Kelembapan: {row['kelembapan']} %\n"
-                f"Gas: {row['gas']} ADC\n"
-                f"Waktu: {wib_now_text()}"
-            )
+            lines = [
+                "AntiKobongan",
+                f"Status: {label}",
+                f"Node: {self.cfg.node_id}",
+                f"Skor risiko: {score} dari 100",
+                f"Suhu: {num(row['suhu'], 1)} °C",
+                f"Kelembapan udara: {num(row['kelembapan'], 1)} %",
+                f"Gas dan asap: {num(row['gas'])} ADC",
+            ]
+            if row.get("kelembapan_tanah") is not None:
+                lines.append(f"Kelembapan tanah: {num(row['kelembapan_tanah'])} %")
+            if row.get("tekanan") is not None:
+                lines.append(f"Tekanan udara: {num(row['tekanan'], 2)} hPa")
+            lines.append(f"Waktu: {wib_now_text()}")
+            action = LEVEL_ACTION.get(ALERT_LEVEL.get(level, level))
+            if action:
+                lines.append(f"Tindakan: {action}")
+            message = "\n".join(lines)
         self.logger.warning("Event %s (skor %s)", kind, score)
         self.worker.submit_event(
             {
@@ -250,6 +369,7 @@ class BackendApp:
                     "gas": row["gas"],
                     "gas_excess": row.get("gas_excess"),
                     "kelembapan_tanah": row.get("kelembapan_tanah"),
+                    "tekanan": row.get("tekanan"),
                 },
             }
         )
@@ -273,10 +393,31 @@ class BackendApp:
         )
         self._last_status_upsert = now
 
+    def _announce_once(self, kind: str) -> bool:
+        """Satu notifikasi per transisi; transisi sama dalam cooldown dibuang.
+
+        LWT dan watchdog bisa sama-sama melaporkan offline untuk kejadian yang
+        sama; penanda ini mencegah pesan Telegram ganda.
+        """
+        now = time.monotonic()
+        last_kind, last_at = self._last_status_notice or (None, 0.0)
+        if last_kind == kind and now - last_at < self.cfg.alert_cooldown_seconds:
+            return False
+        self._last_status_notice = (kind, now)
+        return True
+
     def _mark_online(self) -> None:
         self._online = True
         self._upsert_status(force=True)
-        message = f"AntiKobongan: node {self.cfg.node_id} ONLINE kembali.\nWaktu: {wib_now_text()}"
+        if not self._announce_once("NODE_ONLINE"):
+            self.logger.info("Node %s online (notifikasi ditahan cooldown).", self.cfg.node_id)
+            return
+        message = (
+            "AntiKobongan\n"
+            "Status: Node kembali mengirim data\n"
+            f"Node: {self.cfg.node_id}\n"
+            f"Waktu: {wib_now_text()}"
+        )
         self.logger.info("Node %s online kembali.", self.cfg.node_id)
         self.worker.submit_event(
             {
@@ -288,21 +429,32 @@ class BackendApp:
         )
         self.notifier.send(message)
 
-    def _mark_offline(self, age_seconds: float) -> None:
+    def _mark_offline(self, age_seconds: float | None = None) -> None:
         self._online = False
         self._upsert_status(force=True)
+        if not self._announce_once("NODE_OFFLINE"):
+            self.logger.info("Node %s offline (notifikasi ditahan cooldown).", self.cfg.node_id)
+            return
+        if age_seconds is None:
+            reason = "Broker melaporkan node offline (LWT)."
+            meta = {"source": "lwt"}
+        else:
+            reason = f"Tidak ada data valid selama {age_seconds:.0f} detik."
+            meta = {"silent_seconds": round(age_seconds, 1)}
         message = (
-            f"AntiKobongan: node {self.cfg.node_id} OFFLINE.\n"
-            f"Tidak ada data valid selama {age_seconds:.0f} detik.\n"
+            "AntiKobongan\n"
+            "Status: Node berhenti mengirim data\n"
+            f"Node: {self.cfg.node_id}\n"
+            f"Alasan: {reason}\n"
             f"Waktu: {wib_now_text()}"
         )
-        self.logger.warning("Node %s offline (%.0f detik tanpa data).", self.cfg.node_id, age_seconds)
+        self.logger.warning("Node %s offline (%s)", self.cfg.node_id, reason)
         self.worker.submit_event(
             {
                 "node_id": self.cfg.node_id,
                 "kind": "NODE_OFFLINE",
-                "message": f"Node {self.cfg.node_id} berhenti mengirim data ({age_seconds:.0f} detik)",
-                "meta": {"silent_seconds": round(age_seconds, 1)},
+                "message": f"Node {self.cfg.node_id} berhenti mengirim data ({reason.rstrip('.')})",
+                "meta": meta,
             }
         )
         self.notifier.send(message)
@@ -310,7 +462,7 @@ class BackendApp:
     def watchdog(self) -> None:
         now = time.monotonic()
         if not hasattr(self, "_last_heartbeat_at") or (now - self._last_heartbeat_at) >= 30:
-            self.worker.submit_heartbeat("active", self.cfg.telegram_configured)
+            self.worker.submit_heartbeat("active", self.cfg.telegram_configured or self.cfg.telegram_bot_ready)
             self._last_heartbeat_at = now
 
         if self._last_valid_mono is None or self._online is not True:
@@ -340,6 +492,32 @@ class BackendApp:
         while not self._stop.wait(24 * 60 * 60):
             self._retention_once()
 
+    def _control_loop(self) -> None:
+        """Terima perintah 'stop' dari skrip peluncur (localhost saja)."""
+        assert self._control is not None
+        while not self._stop.is_set():
+            try:
+                conn, _ = self._control.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            try:
+                conn.settimeout(2.0)
+                try:
+                    data = conn.recv(64)
+                except OSError:
+                    data = b""
+                if data.strip().lower() == b"stop":
+                    self.logger.info("Permintaan berhenti dari peluncur diterima.")
+                    self._stop.set()
+                    try:
+                        conn.sendall(b"stopping\n")
+                    except OSError:
+                        pass
+            finally:
+                conn.close()
+
     def run(self) -> int:
         if not self.cfg.supabase_configured:
             self.logger.error(
@@ -347,8 +525,21 @@ class BackendApp:
                 "Backend berhenti (tidak mencetak nilai rahasia)."
             )
             return 2
+        self._control = acquire_control_socket(self.cfg.control_port)
+        if self._control is None:
+            self.logger.error(
+                "Backend lain sudah berjalan (port kontrol %s). Hentikan dulu dengan "
+                "`backend\\main.py --stop`, lalu jalankan lagi. Ini mencegah bentrok 409 di Telegram.",
+                self.cfg.control_port,
+            )
+            return 3
+        self._control_thread = threading.Thread(target=self._control_loop, name="control", daemon=True)
+        self._control_thread.start()
         if not self.cfg.telegram_configured:
-            self.logger.info("Telegram belum diisi: backend tetap menyimpan data tanpa notifikasi.")
+            if self.cfg.telegram_bot_ready:
+                self.logger.info("Telegram notifikasi belum diisi; bot perintah tetap aktif (publik).")
+            else:
+                self.logger.info("Telegram belum diisi: backend tetap menyimpan data tanpa notifikasi.")
 
         self.logger.info(
             "Mulai: MQTT %s:%s%s | topic %s | retensi %s hari",
@@ -360,6 +551,8 @@ class BackendApp:
         )
         self.worker.start()
         self._retention_thread.start()
+        if self.commands is not None:
+            self.commands.start()
         self.client.connect_async(self.cfg.mqtt_host, self.cfg.mqtt_port, keepalive=60)
         self.client.loop_start()
         try:
@@ -374,7 +567,11 @@ class BackendApp:
             except Exception:
                 pass
             self.client.loop_stop()
+            if self.commands is not None:
+                self.commands.stop()
             self.worker.stop(flush_timeout=10)
+            if self._control is not None:
+                self._control.close()
             self.logger.info("Backend berhenti.")
         return 0
 
@@ -384,25 +581,74 @@ def run_test_telegram(cfg: Config, logger: logging.Logger) -> int:
         print("Telegram belum dikonfigurasi: isi TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID di backend/.env.")
         return 2
     notifier = TelegramNotifier(cfg.telegram_bot_token, cfg.telegram_chat_id, logger)
-    ok = notifier.send(f"AntiKobongan: pesan uji Telegram.\nWaktu: {wib_now_text()}")
+    ok = notifier.send(
+        "AntiKobongan\n"
+        "Status: Pesan uji Telegram\n"
+        f"Waktu: {wib_now_text()}\n"
+        "Jika pesan ini terlihat, notifikasi aktif untuk semua anggota chat.\n"
+        "Kirim /bantuan di chat ini untuk melihat perintah."
+    )
     print("Pesan uji Telegram terkirim." if ok else "Pesan uji Telegram GAGAL (lihat log).")
     return 0 if ok else 1
+
+
+def run_test_commands(cfg: Config, logger: logging.Logger) -> int:
+    """Cetak contoh balasan perintah memakai data nyata (tanpa mengirim)."""
+    if not cfg.supabase_configured:
+        print("SUPABASE_URL dan SUPABASE_SECRET_KEY belum diisi di backend/.env.")
+        return 2
+    supabase = SupabaseRest(cfg.supabase_url, cfg.supabase_secret_key, logger)
+    try:
+        data = DataService(supabase, cfg.node_id, cfg.stale_seconds, logger)
+        handler = CommandHandler(data, cfg.node_id, cfg.sensor_topic, cfg.stale_seconds)
+        samples = ["/status", "/risiko", "/suhu", "/tren", "/riwayat", "/node", "/id", "/bantuan", "berapa suhu sekarang"]
+        for text in samples:
+            print(f"> {text}")
+            print(handler.reply(text, {"id": "uji", "type": "private"}))
+            print()
+    finally:
+        supabase.close()
+    return 0
+
+
+def run_setup_telegram(cfg: Config, logger: logging.Logger) -> int:
+    """Pasang menu perintah di Telegram (setMyCommands)."""
+    if not cfg.telegram_bot_token:
+        print("TELEGRAM_BOT_TOKEN belum diisi di backend/.env.")
+        return 2
+    ok = register_bot_commands(cfg.telegram_bot_token, logger)
+    if ok:
+        print(f"Menu perintah Telegram dipasang ({len(BOT_COMMANDS)} perintah).")
+        return 0
+    print("Menu perintah Telegram GAGAL dipasang (lihat log).")
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Backend AntiKobongan (MQTT -> Supabase + Telegram).")
     parser.add_argument("--test-telegram", action="store_true", help="kirim satu pesan uji Telegram lalu keluar")
+    parser.add_argument("--test-commands", action="store_true", help="cetak contoh balasan perintah (tanpa mengirim)")
+    parser.add_argument("--setup-telegram", action="store_true", help="pasang menu perintah bot di Telegram lalu keluar")
+    parser.add_argument("--stop", action="store_true", help="hentikan backend yang sedang berjalan lalu keluar")
     args = parser.parse_args(argv)
 
     logger = setup_logging()
     try:
         cfg = load_config()
     except ConfigError as exc:
+        if args.stop:
+            return request_stop(47831)
         logger.error("Konfigurasi tidak valid: %s", exc)
         return 2
 
+    if args.stop:
+        return request_stop(cfg.control_port)
     if args.test_telegram:
         return run_test_telegram(cfg, logger)
+    if args.test_commands:
+        return run_test_commands(cfg, logger)
+    if args.setup_telegram:
+        return run_setup_telegram(cfg, logger)
     return BackendApp(cfg, logger).run()
 
 

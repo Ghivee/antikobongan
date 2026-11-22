@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AntiKobongan — Cara Kerja Sistem (Panduan Visual)</title>
+<style>
+  :root {
+    --bg: #f6f7f4;
+    --card: #ffffff;
+    --ink: #14201b;
+    --muted: #5b6b63;
+    --line: #dfe5df;
+    --green: #1f7a4d;
+    --green-soft: #e6f4ec;
+    --amber: #b26a00;
+    --amber-soft: #fdf1dc;
+    --red: #b3261e;
+    --red-soft: #fbe9e7;
+    --blue: #1f5f8b;
+    --blue-soft: #e7f1f8;
+    --violet: #5b3f8c;
+    --violet-soft: #efeaf8;
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(16, 32, 25, .06), 0 8px 24px rgba(16, 32, 25, .05);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 { line-height: 1.25; margin: 0 0 .5em; letter-spacing: -.01em; }
+  h1 { font-size: clamp(1.7rem, 4vw, 2.5rem); }
+  h2 { font-size: clamp(1.3rem, 2.6vw, 1.75rem); }
+  h3 { font-size: 1.05rem; }
+  p { margin: 0 0 1em; }
+  a { color: var(--green); }
+  code, .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: .9em; }
+  code { background: #eef2ee; padding: .12em .4em; border-radius: 5px; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px 72px; }
+
+  /* ── Header ── */
+  header.top {
+    background: linear-gradient(140deg, #12301f 0%, #1f5c3a 52%, #2b7a4b 100%);
+    color: #eaf6ee;
+    padding: 44px 20px 40px;
+  }
+  header.top .inner { max-width: 1080px; margin: 0 auto; }
+  .kicker {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.22);
+    padding: 4px 12px; border-radius: 999px; font-size: .78rem; letter-spacing: .06em; text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  header.top h1 { color: #fff; margin-bottom: 10px; }
+  header.top p { color: #cfe8d8; max-width: 70ch; margin: 0; }
+
+  /* ── Nav ── */
+  nav.toc {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(246,247,244,.92); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 32px;
+  }
+  nav.toc .inner {
+    max-width: 1080px; margin: 0 auto; padding: 10px 20px;
+    display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  }
+  nav.toc a {
+    white-space: nowrap; text-decoration: none; color: var(--muted);
+    font-size: .86rem; padding: 6px 12px; border-radius: 999px; border: 1px solid transparent;
+  }
+  nav.toc a:hover { background: #fff; border-color: var(--line); color: var(--ink); }
+
+  /* ── Cards & sections ── */
+  section { margin: 0 0 44px; scroll-margin-top: 64px; }
+  .lead { font-size: 1.06rem; color: #26382f; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 22px; box-shadow: var(--shadow);
+  }
+  .grid { display: grid; gap: 16px; }
+  .g2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .g4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
+  @media (max-width: 860px) { .g3, .g4 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  @media (max-width: 620px) { .g2, .g3, .g4 { grid-template-columns: 1fr; } }
+
+  .tag {
+    display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase; padding: 3px 9px; border-radius: 999px; margin-bottom: 10px;
+  }
+  .t-green { background: var(--green-soft); color: var(--green); }
+  .t-amber { background: var(--amber-soft); color: var(--amber); }
+  .t-red { background: var(--red-soft); color: var(--red); }
+  .t-blue { background: var(--blue-soft); color: var(--blue); }
+  .t-violet { background: var(--violet-soft); color: var(--violet); }
+
+  .note {
+    border-left: 4px solid var(--amber); background: var(--amber-soft);
+    padding: 14px 16px; border-radius: 0 10px 10px 0; margin: 0 0 1em;
+  }
+  .good { border-left-color: var(--green); background: var(--green-soft); }
+  .bad { border-left-color: var(--red); background: var(--red-soft); }
+
+  /* ── Ringkasan ── */
+  .summary { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 760px) { .summary { grid-template-columns: 1fr; } }
+  .summary ol { margin: 0; padding-left: 1.2em; }
+  .summary li { margin-bottom: .55em; }
+  .stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+  .stat b { font-size: 1.25rem; }
+  .stat span { color: var(--muted); font-size: .82rem; }
+
+  /* ── Diagram ── */
+  .diagram { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); overflow-x: auto; }
+  .diagram svg { display: block; width: 100%; min-width: 720px; height: auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: .84rem; color: var(--muted); }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+  /* ── Perbandingan ── */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .compare { grid-template-columns: 1fr; } }
+  .compare .card h3 { display: flex; align-items: center; gap: 8px; }
+  .bullet { list-style: none; margin: 0; padding: 0; }
+  .bullet li { position: relative; padding-left: 24px; margin-bottom: .5em; }
+  .bullet li::before { content: "•"; position: absolute; left: 8px; color: var(--muted); }
+  .yes li::before { content: "✓"; color: var(--green); font-weight: 700; left: 4px; }
+  .no li::before { content: "✕"; color: var(--red); font-weight: 700; left: 4px; }
+
+  /* ── Langkah ── */
+  .steps { counter-reset: step; display: grid; gap: 0; }
+  .step { position: relative; padding: 0 0 22px 58px; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 0; top: -2px;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--green); color: #fff; font-weight: 700;
+    display: grid; place-items: center; font-size: .95rem;
+  }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; left: 16px; top: 36px; bottom: 4px; width: 2px; background: var(--line);
+  }
+  .step h3 { margin-bottom: .2em; }
+  .step .when { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .step p { margin: .25em 0 0; color: #2c3d35; }
+
+  /* ── Protokol ── */
+  .proto h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .proto .io { font-family: "Cascadia Mono", Consolas, monospace; font-size: .78rem; color: var(--muted); }
+  .proto p { font-size: .92rem; color: #33463c; margin-bottom: .5em; }
+  .proto .analogy { font-size: .86rem; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 8px; margin: 0; }
+
+  /* ── Glosarium ── */
+  .glossary { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0,1fr)); }
+  @media (max-width: 760px) { .glossary { grid-template-columns: 1fr; } }
+  .term { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .term dt { font-weight: 700; margin-bottom: 4px; }
+  .term dd { margin: 0; color: #3a4a42; font-size: .92rem; }
+  .term .en { font-weight: 400; color: var(--muted); font-size: .82rem; }
+  .letter {
+    font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+    margin: 22px 0 10px; border-bottom: 1px solid var(--line); padding-bottom: 6px;
+  }
+
+  /* ── Tabel ── */
+  .tablewrap { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: #f3f6f3; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  tr:last-child td { border-bottom: 0; }
+  td code { white-space: nowrap; }
+
+  /* ── Timeline tanpa backend ── */
+  .lane { display: grid; gap: 10px; }
+  .lane .row { display: grid; grid-template-columns: 90px 1fr; gap: 12px; align-items: center; }
+  .lane .row .t { font-size: .8rem; color: var(--muted); text-align: right; }
+  .lane .bar { padding: 9px 12px; border-radius: 8px; font-size: .9rem; border: 1px solid var(--line); background: #fff; }
+  .lane .bar.ok { background: var(--green-soft); border-color: #cbe6d6; }
+  .lane .bar.bad { background: var(--red-soft); border-color: #f3cdc8; }
+  .lane .bar.warn { background: var(--amber-soft); border-color: #f2dfbc; }
+
+  footer { border-top: 1px solid var(--line); padding-top: 20px; color: var(--muted); font-size: .86rem; }
+  .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .pill { font-size: .8rem; padding: 4px 10px; border-radius: 999px; background: #fff; border: 1px solid var(--line); color: var(--muted); }
+  @media print {
+    header.top { background: #fff; color: #000; }
+    nav.toc { display: none; }
+    .card, .diagram, .tablewrap { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="inner">
+    <div class="kicker">Panduan visual · AntiKobongan v2</div>
+    <h1>Cara kerja sistem pemantauan kebakaran hutan</h1>
+    <p>Penjelasan alur data dari sensor ESP32 sampai muncul di dasbor, peran <code>run_backend.bat</code>, protokol yang dipakai, dan arti istilah-istilah teknisnya — tanpa perlu latar belakang IT.</p>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="inner">
+    <a href="#ringkasan">Ringkasan</a>
+    <a href="#diagram">Alur besar</a>
+    <a href="#tanpa-backend">Tanpa backend.bat</a>
+    <a href="#perjalanan">Perjalanan 1 data</a>
+    <a href="#protokol">Protokol</a>
+    <a href="#glosarium">Istilah</a>
+    <a href="#peta-file">Isi project</a>
+    <a href="#tanya">Tanya-jawab</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <!-- ══════════ RINGKASAN ══════════ -->
+  <section id="ringkasan">
+    <h2>Ringkasan 1 menit</h2>
+    <div class="summary">
+      <div class="card">
+        <ol>
+          <li><b>ESP32 membaca sensor</b> (suhu, kelembapan, gas/asap, kelembapan tanah), menghitung skor risiko 0–100, lalu mengirim satu paket data bernama JSON ke <b>broker MQTT</b> setiap 3 detik (mode uji realtime; produksi 45 detik).</li>
+          <li><b>Broker</b> itu seperti kantor pos: ia tidak mengolah data, hanya meneruskan pesan ke siapa pun yang berlangganan topik tertentu.</li>
+          <li>Ada <b>dua pelanggan</b>: <b>dasbor di browser</b> (untuk tampilan live) dan <b>pencatat Python</b> di PC Anda (untuk menyimpan ke database).</li>
+          <li><b>Pencatat</b> memvalidasi data lalu menulis ke <b>Supabase</b>. Hanya data yang tersimpan di Supabase yang masih ada setelah halaman di-refresh.</li>
+          <li><b>Dasbor</b> mengambil riwayat dari Supabase lewat <code>/api/*</code>, dan mengambil angka detik-terkini langsung dari broker.</li>
+        </ol>
+      </div>
+      <div class="grid" style="align-content:start">
+        <div class="stat"><span>Interval kirim sensor</span><b>3 detik</b><span>mode uji realtime</span></div>
+        <div class="stat"><span>Broker</span><b>HiveMQ publik</b><span>broker.hivemq.com</span></div>
+        <div class="stat"><span>Database</span><b>Supabase (PostgreSQL)</b></div>
+        <div class="stat"><span>Dasbor &amp; API</span><b>Vercel</b></div>
+      </div>
+    </div>
+
+    <div class="note good" style="margin-top:16px">
+      <b>Kalimat kunci:</b> data live di layar belum tentu tersimpan. Yang membuat data “tahan refresh” adalah <b>pencatat</b> — bukan dasbornya.
+    </div>
+  </section>
+
+  <!-- ══════════ DIAGRAM ══════════ -->
+  <section id="diagram">
+    <h2>Alur besar sistem</h2>
+    <p class="lead">Baca dari kiri ke kanan. Garis putus-putus = data live (cepat, tidak disimpan). Garis penuh = data yang disimpan.</p>
+
+    <div class="diagram">
+      <!-- SVG architecture -->
+      <svg viewBox="0 0 960 470" role="img" aria-label="Diagram alur: ESP32 ke broker MQTT, lalu ke dasbor dan pencatat, lalu ke Supabase dan Telegram">
+        <defs>
+          <marker id="ar" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" fill="#5b6b63"/>
+          </marker>
+          <marker id="arG" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" fill="#1f7a4d"/>
+          </marker>
+          <marker id="arA" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" fill="#b26a00"/>
+          </marker>
+          <marker id="arV" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+            <path d="M0,0 L10,4 L0,8 z" fill="#5b3f8c"/>
+          </marker>
+        </defs>
+
+        <!-- Boxes -->
+        <!-- ESP32 -->
+        <g>
+          <rect x="20" y="170" width="180" height="130" rx="14" fill="#e7f1f8" stroke="#bcd7e8"/>
+          <text x="110" y="200" text-anchor="middle" font-size="15" font-weight="700" fill="#1f4f6b">ESP32 + sensor</text>
+          <text x="110" y="222" text-anchor="middle" font-size="11.5" fill="#41637a">BME280 · MQ-2 · soil</text>
+          <text x="110" y="240" text-anchor="middle" font-size="11.5" fill="#41637a">hitung skor risiko</text>
+          <rect x="38" y="256" width="144" height="26" rx="6" fill="#fff" stroke="#bcd7e8"/>
+          <text x="110" y="273" text-anchor="middle" font-size="11" font-family="Consolas, monospace" fill="#1f4f6b">tiap 3 detik</text>
+        </g>
+
+        <!-- Broker -->
+        <g>
+          <rect x="290" y="150" width="190" height="170" rx="14" fill="#efeaf8" stroke="#d6cbed"/>
+          <text x="385" y="180" text-anchor="middle" font-size="15" font-weight="700" fill="#4a3373">Broker MQTT</text>
+          <text x="385" y="200" text-anchor="middle" font-size="11.5" fill="#5f4b86">“kantor pos” pesan</text>
+          <rect x="306" y="216" width="158" height="42" rx="8" fill="#fff" stroke="#d6cbed"/>
+          <text x="385" y="233" text-anchor="middle" font-size="10.5" font-family="Consolas, monospace" fill="#4a3373">…/esp32-01/sensor</text>
+          <text x="385" y="249" text-anchor="middle" font-size="10.5" font-family="Consolas, monospace" fill="#4a3373">…/esp32-01/status</text>
+          <text x="385" y="284" text-anchor="middle" font-size="11" fill="#5f4b86">HiveMQ publik · TCP 1883</text>
+          <text x="385" y="299" text-anchor="middle" font-size="11" fill="#5f4b86">browser: WebSocket 8884</text>
+        </g>
+
+        <!-- Browser -->
+        <g>
+          <rect x="580" y="30" width="360" height="150" rx="14" fill="#e6f4ec" stroke="#c6e2d2"/>
+          <text x="760" y="58" text-anchor="middle" font-size="15" font-weight="700" fill="#16603c">Dasbor di browser (Vercel)</text>
+          <text x="760" y="79" text-anchor="middle" font-size="11.5" fill="#2f6a4c">langganan MQTT lewat WebSocket → angka live</text>
+          <rect x="600" y="92" width="150" height="30" rx="7" fill="#fff" stroke="#c6e2d2"/>
+          <text x="675" y="112" text-anchor="middle" font-size="11" fill="#2f6a4c">Tampilan / grafik</text>
+          <rect x="770" y="92" width="150" height="30" rx="7" fill="#fff" stroke="#c6e2d2"/>
+          <text x="845" y="112" text-anchor="middle" font-size="11" fill="#2f6a4c">Riwayat (/api/*)</text>
+          <text x="760" y="146" text-anchor="middle" font-size="11" fill="#2f6a4c">tanpa login · tanpa akses tulis database</text>
+          <text x="760" y="163" text-anchor="middle" font-size="11" fill="#2f6a4c">refresh = baca ulang database</text>
+        </g>
+
+        <!-- Recorder -->
+        <g>
+          <rect x="540" y="250" width="230" height="120" rx="14" fill="#fdf1dc" stroke="#eed9b3"/>
+          <text x="655" y="278" text-anchor="middle" font-size="14.5" font-weight="700" fill="#96600a">Pencatat (run_backend.bat)</text>
+          <text x="655" y="299" text-anchor="middle" font-size="11.5" fill="#8a6417">program Python di PC Anda</text>
+          <text x="655" y="317" text-anchor="middle" font-size="11.5" fill="#8a6417">validasi → tulis database</text>
+          <text x="655" y="335" text-anchor="middle" font-size="11.5" fill="#8a6417">deteksi node offline · retensi 90 hari</text>
+          <text x="655" y="356" text-anchor="middle" font-size="11" fill="#8a6417">harus terus hidup</text>
+        </g>
+
+        <!-- Supabase -->
+        <g>
+          <rect x="540" y="400" width="230" height="52" rx="12" fill="#e6f4ec" stroke="#c6e2d2"/>
+          <text x="655" y="423" text-anchor="middle" font-size="13.5" font-weight="700" fill="#16603c">Supabase (PostgreSQL)</text>
+          <text x="655" y="440" text-anchor="middle" font-size="10.5" fill="#2f6a4c">readings · events · nodes · heartbeat</text>
+        </g>
+
+        <!-- Telegram -->
+        <g>
+          <rect x="810" y="400" width="130" height="52" rx="12" fill="#e7f1f8" stroke="#bcd7e8"/>
+          <text x="875" y="423" text-anchor="middle" font-size="13" font-weight="700" fill="#1f4f6b">Telegram</text>
+          <text x="875" y="440" text-anchor="middle" font-size="10.5" fill="#41637a">opsional</text>
+        </g>
+
+        <!-- Arrows -->
+        <!-- ESP -> broker -->
+        <line x1="200" y1="235" x2="286" y2="235" stroke="#5b6b63" stroke-width="2" marker-end="url(#ar)"/>
+        <text x="243" y="222" text-anchor="middle" font-size="10.5" fill="#5b6b63">MQTT publish</text>
+
+        <!-- broker -> browser (live) dashed -->
+        <line x1="440" y1="105" x2="576" y2="105" stroke="#1f7a4d" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arG)"/>
+        <text x="508" y="94" text-anchor="middle" font-size="10.5" fill="#1f7a4d">WebSocket (live)</text>
+
+        <!-- broker -> recorder -->
+        <line x1="440" y1="300" x2="536" y2="300" stroke="#b26a00" stroke-width="2" marker-end="url(#arA)"/>
+        <text x="488" y="289" text-anchor="middle" font-size="10.5" fill="#b26a00">MQTT subscribe</text>
+
+        <!-- recorder -> supabase -->
+        <line x1="655" y1="370" x2="655" y2="396" stroke="#5b6b63" stroke-width="2" marker-end="url(#ar)"/>
+        <text x="700" y="388" text-anchor="middle" font-size="10.5" fill="#5b6b63">REST / HTTPS</text>
+
+        <!-- recorder -> telegram -->
+        <line x1="770" y1="340" x2="830" y2="396" stroke="#5b6b63" stroke-width="2" marker-end="url(#ar)"/>
+        <text x="828" y="372" text-anchor="middle" font-size="10.5" fill="#5b6b63">alert</text>
+
+        <!-- supabase -> browser (history) -->
+        <path d="M540 420 C 470 420, 470 150, 576 130" fill="none" stroke="#5b3f8c" stroke-width="2" marker-end="url(#arV)"/>
+        <text x="470" y="380" text-anchor="middle" font-size="10.5" fill="#5b3f8c" transform="rotate(-90 470 380)">/api/* (HTTPS)</text>
+
+        <!-- Browser -> supabase API note -->
+        <rect x="580" y="192" width="360" height="34" rx="8" fill="#fff" stroke="#c6e2d2"/>
+        <text x="760" y="214" text-anchor="middle" font-size="11" fill="#2f6a4c">Server Vercel memegang kunci database; browser tidak pernah menerimanya</text>
+      </svg>
+
+      <div class="legend">
+        <span><i style="background:#1f7a4d"></i>garis putus-putus: data live, hanya di memori browser</span>
+        <span><i style="background:#b26a00"></i>jalur penyimpanan permanen</span>
+        <span><i style="background:#5b3f8c"></i>baca riwayat dari database</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ TANPA BACKEND ══════════ -->
+  <section id="tanpa-backend">
+    <h2>Kalau <code>run_backend.bat</code> tidak dijalankan</h2>
+    <p class="lead">Dasbor tetap “hidup”, tetapi hanya setengah sistem yang bekerja.</p>
+
+    <div class="compare">
+      <div class="card">
+        <h3><span class="tag t-green">Dengan pencatat</span></h3>
+        <ul class="bullet yes">
+          <li>Angka live dari broker tampil.</li>
+          <li>Setiap 3 detik data <b>disimpan</b> ke Supabase (mode uji realtime).</li>
+          <li>Refresh halaman → data terbaru tetap muncul.</li>
+          <li>Grafik 1 jam / 24 jam / 30 hari terisi.</li>
+          <li>Riwayat kejadian (node online/offline, risiko naik) tercatat.</li>
+          <li>Notifikasi Telegram terkirim saat risiko tinggi.</li>
+          <li>Bot Telegram menjawab <code>/status</code>, <code>/suhu</code>, <code>/tren</code>, dan pertanyaan bebas.</li>
+          <li>Data lebih tua dari 90 hari dibersihkan otomatis.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="tag t-red">Tanpa pencatat</span></h3>
+        <ul class="bullet no">
+          <li>Angka live tetap tampil — <b>tapi hanya sementara</b>.</li>
+          <li>Tidak ada satu baris pun masuk database.</li>
+          <li>Refresh halaman → angka live hilang, kembali ke data lama.</li>
+          <li>Grafik riwayat membeku di titik terakhir yang tersimpan.</li>
+          <li>Rantai status di dasbor menandai <b>Pencatat</b> merah (heartbeat basi).</li>
+          <li>Telegram tidak pernah berbunyi.</li>
+          <li>Tidak ada pembersihan data lama.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3 style="margin-top:26px">Yang terjadi pada satu pembacaan sensor</h3>
+    <div class="lane" style="margin-top:10px">
+      <div class="row"><div class="t">detik 0</div><div class="bar ok">ESP32 mengirim data ke broker · <b>berhasil</b></div></div>
+      <div class="row"><div class="t">detik 0</div><div class="bar ok">Browser menerima lewat WebSocket · angka di layar berubah · <b>berhasil</b></div></div>
+      <div class="row"><div class="t">detik 0</div><div class="bar warn">Pencatat tidak mendengar (belum dijalankan)</div></div>
+      <div class="row"><div class="t">detik 15</div><div class="bar ok">Data sensor berikutnya datang · angka di layar berubah lagi</div></div>
+      <div class="row"><div class="t">saat refresh</div><div class="bar bad">Browser meminta riwayat ke database · yang ada hanya data lama / CSV · <b>angka live hilang</b></div></div>
+    </div>
+
+    <div class="note" style="margin-top:18px">
+      <b>Analogi:</b> dasbor seperti orang yang mendengar pengumuman di lapangan (langsung, cepat, tapi tidak dicatat). Pencatat seperti notulen rapat yang menulis ke buku. Kalau notulen tidak hadir, pengumuman tetap terdengar, tetapi besok tidak ada catatan apa pun.
+    </div>
+  </section>
+
+  <!-- ══════════ PERJALANAN DATA ══════════ -->
+  <section id="perjalanan">
+    <h2>Perjalanan satu paket data</h2>
+    <p class="lead">Contoh nyata yang terekam saat sistem diperiksa: suhu 29,4 °C · gas 391 · skor risiko 48.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="when">Tahap 1 · alat</div>
+        <h3>Sensor membaca lingkungan</h3>
+        <p>BME280 (I2C: SDA GPIO21, SCL GPIO22) membaca suhu, kelembapan udara, dan tekanan; MQ-2 membaca gas/asap; sensor tanah membaca kelembapan tanah. Firmware menghitung <b>skor risiko 0–100</b> dari empat komponen lingkungan itu (tekanan tidak masuk rumus).</p>
+      </div>
+      <div class="step">
+        <div class="when">Tahap 2 · firmware</div>
+        <h3>Data dibungkus jadi JSON</h3>
+        <p>Firmware menyusun teks seperti <code>{"suhu":29.4,"kelembapan":65,"gas":391,"gas_excess":313,"riskScore":48,...}</code> lalu mengirim (publish) ke topik <code>…/esp32-01/sensor</code>.</p>
+      </div>
+      <div class="step">
+        <div class="when">Tahap 3 · jaringan</div>
+        <h3>Broker menerima &amp; meneruskan</h3>
+        <p>Broker HiveMQ menerima pesan dan meneruskannya ke semua pelanggan topik tersebut. Broker tidak menyimpan riwayat jangka panjang dan tidak mengolah angka.</p>
+      </div>
+      <div class="step">
+        <div class="when">Tahap 4 · dasbor</div>
+        <h3>Browser menampilkan angka live</h3>
+        <p>Dasbor berlangganan topik yang sama lewat WebSocket. Dalam hitungan milidetik angka di layar berubah. Data ini masih di memori — belum tersimpan di mana pun.</p>
+      </div>
+      <div class="step">
+        <div class="when">Tahap 5 · pencatat</div>
+        <h3>Pencatat memvalidasi</h3>
+        <p>Program Python menerima pesan yang sama, memeriksa kewajaran nilai (mis. suhu mustahil dibuang), lalu menyiapkan baris database.</p>
+      </div>
+      <div class="step">
+        <div class="when">Tahap 6 · database</div>
+        <h3>Ditulis ke Supabase</h3>
+        <p>Baris masuk ke tabel <code>readings</code>: waktu, suhu, gas, skor, status. Pencatat juga memperbarui <code>node_status</code> dan denyut <code>backend_heartbeat</code> tiap 30 detik.</p>
+      </div>
+      <div class="step">
+        <div class="when">Tahap 7 · setelah refresh</div>
+        <h3>Dasbor membaca riwayat lewat API</h3>
+        <p>Browser memanggil <code>/api/latest</code> dan <code>/api/series</code>. Server Vercel (yang memegang kunci database) mengambil data dari Supabase dan mengirimkannya tanpa rahasia. Karena berasal dari database, angkanya <b>tetap ada</b>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ PROTOKOL ══════════ -->
+  <section id="protokol">
+    <h2>Protokol yang dipakai</h2>
+    <p class="lead">“Protokol” = kesepakatan cara dua program berbicara. Project ini memakai lima percakapan berbeda.</p>
+
+    <div class="grid g3">
+      <div class="card proto">
+        <span class="tag t-violet">Alat → Broker → Pencatat</span>
+        <h3>MQTT <span class="io">TCP 1883 / TLS 8883</span></h3>
+        <p>Protokol pesan ringan untuk perangkat IoT. Pengirim <b>publish</b> ke sebuah <b>topik</b>; penerima <b>subscribe</b> topik itu. Tidak ada yang “meminta”; pesan mengalir begitu saja.</p>
+        <p class="analogy">Analogi: grup chat. ESP32 mengirim ke grup “sensor”, semua anggota grup menerima.</p>
+      </div>
+
+      <div class="card proto">
+        <span class="tag t-green">Broker → Browser</span>
+        <h3>WebSocket / WSS <span class="io">port 8884</span></h3>
+        <p>Browser tidak bisa bicara MQTT langsung, jadi MQTT dibungkus ke WebSocket. WSS = versi aman (terenkripsi) dari WebSocket.</p>
+        <p class="analogy">Analogi: telepon yang tidak ditutup — koneksi tetap terbuka agar pesan baru langsung masuk.</p>
+      </div>
+
+      <div class="card proto">
+        <span class="tag t-blue">Browser → Vercel → Supabase</span>
+        <h3>HTTPS / REST <span class="io">JSON</span></h3>
+        <p>Permintaan sekali-jalan: “beri saya data terakhir”. Setiap alamat seperti <code>/api/latest</code> disebut <b>endpoint</b>. Jawabannya JSON.</p>
+        <p class="analogy">Analogi: memesan makanan lewat aplikasi — minta, lalu diantar sekali; tidak ada saluran yang tetap terbuka.</p>
+      </div>
+
+      <div class="card proto">
+        <span class="tag t-amber">Pencatat → Supabase</span>
+        <h3>PostgREST <span class="io">HTTP + SQL</span></h3>
+        <p>Supabase mengekspos tabel PostgreSQL sebagai alamat HTTP. Menulis satu baris = <code>POST /rest/v1/readings</code>. Tidak perlu menulis SQL manual.</p>
+        <p class="analogy">Analogi: database yang bisa menerima pesanan lewat formulir web.</p>
+      </div>
+
+      <div class="card proto">
+        <span class="tag t-green">Format isi pesan</span>
+        <h3>JSON</h3>
+        <p>Format teks berpasangan nama–nilai: <code>{"suhu": 29.4}</code>. Dipakai di MQTT, API, dan database agar mudah dibaca manusia maupun program.</p>
+        <p class="analogy">Analogi: formulir dengan kolom bernama.</p>
+      </div>
+
+      <div class="card proto">
+        <span class="tag t-red">Keamanan</span>
+        <h3>TLS + kunci rahasia</h3>
+        <p>TLS membuat isi pesan tidak bisa dibaca di tengah jalan. Kunci <code>service_role</code> hanya ada di server Vercel dan di PC pencatat — tidak pernah dikirim ke browser.</p>
+        <p class="analogy">Analogi: amplop tersegel + kunci gudang yang hanya dipegang petugas.</p>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:18px">
+      <b>Mengapa pencatat tidak bisa di Vercel?</b> Vercel menjalankan <i>serverless function</i>: kode hanya hidup beberapa detik saat dipanggil, lalu dimatikan. MQTT butuh koneksi yang terbuka terus-menerus. Karena itu pencatat harus berupa program yang berjalan lama — di PC, laptop, atau server.
+    </div>
+  </section>
+
+  <!-- ══════════ GLOSARIUM ══════════ -->
+  <section id="glosarium">
+    <h2>Istilah di project ini</h2>
+    <p class="lead">Dikelompokkan supaya mudah dicari. Istilah Inggris ditulis miring.</p>
+
+    <div class="letter">Perangkat &amp; jaringan</div>
+    <div class="glossary">
+      <dl class="term"><dt>Node</dt><dd>Satu titik pemantauan. Di project ini satu node = satu ESP32 dengan ID <code>esp32-01</code>.</dd></dl>
+      <dl class="term"><dt>ESP32</dt><dd>Microcontroller mungil ber-WiFi. Otak di sisi alat: membaca sensor, menghitung skor, mengirim data.</dd></dl>
+      <dl class="term"><dt>Firmware <span class="en">(sketch)</span></dt><dd>Program yang ditanam di ESP32. Di project ini: <code>antikobongan-2.ino</code>. Menanamnya disebut <i>flash</i>.</dd></dl>
+      <dl class="term"><dt>MQ-2 / BME280</dt><dd>Sensor gas/asap dan sensor suhu-kelembapan-tekanan. MQ-2 belum dikalibrasi ke satuan ppm, jadi angkanya “indeks”, bukan konsentrasi resmi. BME280 memakai I2C (VIN/VCC → 3V3, GND, SCL → D22, SDA → D21).</dd></dl>
+      <dl class="term"><dt>MQTT</dt><dd>Protokol pesan ringan untuk IoT. Modelnya publish–subscribe lewat broker.</dd></dl>
+      <dl class="term"><dt>Broker</dt><dd>Server perantara pesan MQTT. Project ini memakai broker publik <code>broker.hivemq.com</code>.</dd></dl>
+      <dl class="term"><dt>Topik <span class="en">(topic)</span></dt><dd>“Nama saluran” pesan, mis. <code>antikobongan/prototipe-gx7q4m/esp32-01/sensor</code>. Penerima hanya menerima topik yang di-subscribe.</dd></dl>
+      <dl class="term"><dt>Publish / Subscribe</dt><dd>Publish = mengirim pesan ke topik. Subscribe = berlangganan topik untuk menerima pesan.</dd></dl>
+      <dl class="term"><dt>Payload</dt><dd>Isi pesan itu sendiri — di project ini berupa JSON berisi suhu, gas, skor, dan waktu.</dd></dl>
+      <dl class="term"><dt>QoS</dt><dd>Tingkat jaminan pengiriman. Project ini memakai QoS 0: dikirim sekali, tanpa konfirmasi — cepat, tapi bisa hilang jika jaringan putus.</dd></dl>
+      <dl class="term"><dt>Retained message</dt><dd>Pesan terakhir yang disimpan broker untuk topik tertentu, sehingga pendatang baru langsung tahu status terakhir. Dipakai untuk topik <code>status</code>.</dd></dl>
+      <dl class="term"><dt>LWT <span class="en">(Last Will and Testament)</span></dt><dd>“Surat wasiat”: pesan <code>offline</code> yang otomatis diumumkan broker bila ESP32 terputus mendadak.</dd></dl>
+      <dl class="term"><dt>WebSocket</dt><dd>Koneksi dua arah yang tetap terbuka antara browser dan server. Dipakai dasbor untuk menerima MQTT.</dd></dl>
+      <dl class="term"><dt>WSS</dt><dd>WebSocket yang dienkripsi TLS (aman). Alamatnya diawali <code>wss://</code>.</dd></dl>
+    </div>
+
+    <div class="letter">Data &amp; penyimpanan</div>
+    <div class="glossary">
+      <dl class="term"><dt>JSON</dt><dd>Format teks untuk data berstruktur, mis. <code>{"suhu":29.4,"gas":391}</code>.</dd></dl>
+      <dl class="term"><dt>Supabase</dt><dd>Layanan database berbasis PostgreSQL + API otomatis. Menyimpan seluruh riwayat pembacaan.</dd></dl>
+      <dl class="term"><dt>PostgreSQL / Postgres</dt><dd>Jenis database relasional: data disimpan dalam tabel berbaris dan berkolom.</dd></dl>
+      <dl class="term"><dt>Tabel / baris / kolom</dt><dd>Tabel = lembar data. Baris = satu catatan (satu pembacaan). Kolom = jenis nilai (suhu, gas, waktu).</dd></dl>
+      <dl class="term"><dt><code>readings</code></dt><dd>Tabel utama: satu baris per pembacaan sensor.</dd></dl>
+      <dl class="term"><dt><code>events</code></dt><dd>Tabel kejadian: node online/offline, risiko naik/turun.</dd></dl>
+      <dl class="term"><dt><code>node_status</code></dt><dd>Tabel status terakhir tiap node (online/offline, terakhir terlihat).</dd></dl>
+      <dl class="term"><dt><code>nodes</code></dt><dd>Tabel daftar node beserta nama, lokasi, dan koordinat untuk peta.</dd></dl>
+      <dl class="term"><dt><code>backend_heartbeat</code></dt><dd>Satu baris berisi detak terakhir pencatat. Dipakai dasbor untuk tahu pencatat masih hidup.</dd></dl>
+      <dl class="term"><dt>Heartbeat</dt><dd>“Denyut” berkala sebagai tanda program masih berjalan. Di project ini tiap 30 detik.</dd></dl>
+      <dl class="term"><dt>Stale / basi</dt><dd>Data yang umurnya melewati batas dianggap bukan kondisi sekarang. Pada mode uji realtime (interval 3 detik), batasnya <b>15 detik</b>; pada produksi (interval 45 detik) batasnya <b>180 detik</b>. Status node dari broker (online/offline) dibedakan dari status data sensor.</dd></dl>
+      <dl class="term"><dt>Retensi <span class="en">(retention)</span></dt><dd>Kebijakan menghapus data lama otomatis. Di project ini 90 hari.</dd></dl>
+      <dl class="term"><dt>SQL</dt><dd>Bahasa untuk mengelola database: membuat tabel, mengambil, menghapus.</dd></dl>
+      <dl class="term"><dt>Migrasi <span class="en">(migration)</span></dt><dd>File perubahan struktur database, mis. <code>sql/002_series.sql</code> yang menambah kolom dan fungsi agregasi.</dd></dl>
+      <dl class="term"><dt>RPC / fungsi database</dt><dd>Perhitungan yang dijalankan di dalam database, mis. <code>reading_series</code> yang merangkum data per rentang waktu agar cepat.</dd></dl>
+      <dl class="term"><dt>PostgREST</dt><dd>Lapisan Supabase yang mengubah tabel database menjadi alamat HTTP.</dd></dl>
+      <dl class="term"><dt>Agregasi / bucket</dt><dd>Merangkum banyak baris menjadi beberapa titik (mis. rata-rata per 2 menit) supaya grafik ringan.</dd></dl>
+    </div>
+
+    <div class="letter">Web, deploy, dan alat</div>
+    <div class="glossary">
+      <dl class="term"><dt>API</dt><dd>“Pintu” yang disediakan server agar program lain bisa meminta data atau mengirim perintah.</dd></dl>
+      <dl class="term"><dt>Endpoint</dt><dd>Alamat satu fungsi API, mis. <code>/api/latest</code>.</dd></dl>
+      <dl class="term"><dt>REST</dt><dd>Gaya API berbasis HTTP: setiap alamat mewakili satu jenis permintaan.</dd></dl>
+      <dl class="term"><dt>Serverless</dt><dd>Kode yang hanya dijalankan saat dipanggil, lalu berhenti. Tidak bisa menyimpan koneksi MQTT.</dd></dl>
+      <dl class="term"><dt>Vercel</dt><dd>Tempat dasbor dan API dijalankan. Setiap <code>git push</code> ke <code>main</code> otomatis membuat versi baru (production).</dd></dl>
+      <dl class="term"><dt>Deploy</dt><dd>Menerbitkan versi terbaru ke internet.</dd></dl>
+      <dl class="term"><dt>Environment variable <span class="en">(env)</span></dt><dd>Nilai rahasia/pengaturan yang disimpan di luar kode, mis. <code>SUPABASE_SECRET_KEY</code>. Di lokal: <code>backend/.env</code>; di Vercel: menu Settings → Environment Variables.</dd></dl>
+      <dl class="term"><dt><code>service_role</code> key</dt><dd>Kunci database dengan hak penuh (server-side saja). Jangan pernah ditempel di browser atau di-commit.</dd></dl>
+      <dl class="term"><dt>Anon key</dt><dd>Kunci publik dengan hak terbatas. Di project ini opsional untuk membaca.</dd></dl>
+      <dl class="term"><dt>RLS <span class="en">(Row Level Security)</span></dt><dd>Aturan di database tentang siapa boleh melihat/menulis baris mana.</dd></dl>
+      <dl class="term"><dt>Static site</dt><dd>Situs berisi file HTML/CSS/JS siap pakai, tanpa proses build. Dasbor project ini begitu.</dd></dl>
+      <dl class="term"><dt>CSP</dt><dd>Kebijakan keamanan browser yang membatasi sumber skrip/gambar, sehingga skrip asing tidak bisa disisipkan.</dd></dl>
+      <dl class="term"><dt>Repository / repo</dt><dd>Folder project yang dilacak Git, disimpan di GitHub.</dd></dl>
+      <dl class="term"><dt>Commit / push / branch</dt><dd>Commit = menyimpan perubahan sebagai catatan. Push = mengirim catatan itu ke GitHub. Branch = jalur pengembangan (project ini memakai <code>main</code>).</dd></dl>
+      <dl class="term"><dt>Virtualenv <span class="en">(.venv)</span></dt><dd>“Kotak” berisi Python dan pustaka khusus project, agar tidak bercampur dengan sistem.</dd></dl>
+      <dl class="term"><dt>pip / dependensi</dt><dd>pip = pemasang pustaka Python. Dependensi = pustaka yang dibutuhkan, mis. <code>paho-mqtt</code> dan <code>requests</code>.</dd></dl>
+      <dl class="term"><dt>Daemon / proses berjalan lama</dt><dd>Program yang terus hidup menunggu kejadian. Pencatat termasuk ini.</dd></dl>
+      <dl class="term"><dt>UTC vs WIB</dt><dd>Database menyimpan waktu UTC (GMT). WIB = UTC+7; dasbor menampilkannya dalam WIB.</dd></dl>
+      <dl class="term"><dt>Skor risiko</dt><dd>Angka 0–100 hasil rumus firmware dari suhu, kelembapan, gas, dan tanah. Ambang level: &lt;40 Normal, 40–59 Sedang, 60–79 Tinggi, ≥80 Kritis. Ini proksi sederhana, bukan standar resmi.</dd></dl>
+    </div>
+  </section>
+
+  <!-- ══════════ PETA FILE ══════════ -->
+  <section id="peta-file">
+    <h2>Isi project, dan tugas masing-masing</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Lokasi</th><th>Isi</th><th>Perlu dijalankan?</th></tr></thead>
+        <tbody>
+          <tr><td><code>public/</code></td><td>Tampilan dasbor: HTML, CSS, modul JS, pustaka grafik &amp; peta</td><td>Tidak — dijalankan Vercel</td></tr>
+          <tr><td><code>api/</code> + <code>lib/</code></td><td>Fungsi serverless: <code>/api/latest</code>, <code>/api/series</code>, <code>/api/events</code>, <code>/api/nodes</code>, <code>/api/admin</code>, <code>/api/health</code></td><td>Tidak — dijalankan Vercel</td></tr>
+          <tr><td><code>backend/</code></td><td>Pencatat Python: MQTT → validasi → Supabase, alert Telegram, retensi</td><td><b>Ya</b> — lewat <code>run_backend.bat</code></td></tr>
+          <tr><td><code>antikobongan-2.ino</code></td><td>Program ESP32: baca sensor, hitung skor, publish MQTT</td><td>Di-flash ke alat (sekali)</td></tr>
+          <tr><td><code>sql/</code></td><td>Skema database + migrasi fungsi agregasi</td><td>Sekali, di SQL Editor Supabase</td></tr>
+          <tr><td><code>docs/</code></td><td>Panduan deploy &amp; dokumen ini</td><td>Tidak</td></tr>
+          <tr><td><code>server.js</code></td><td>Menjalankan dasbor + API yang sama di komputer lokal</td><td>Hanya untuk uji lokal</td></tr>
+          <tr><td><code>test/</code></td><td>Uji otomatis API dan modul dasbor</td><td>Saat mengubah kode</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════ TANYA JAWAB ══════════ -->
+  <section id="tanya">
+    <h2>Pertanyaan yang sering muncul</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Kalau PC dimatikan, apa yang terjadi?</h3>
+        <p>ESP32 tetap mengirim, dasbor tetap menampilkan live selama ada yang membuka halaman. Tapi tidak ada data baru yang tersimpan. Saat PC menyala lagi dan pencatat dijalankan, penyimpanan lanjut — data selama PC mati <b>tidak bisa dipulihkan</b> (QoS 0, broker tidak menyimpan riwayat).</p>
+      </div>
+      <div class="card">
+        <h3>Kenapa data lama terlihat “datar” dan aneh?</h3>
+        <p>Itu baris hasil impor CSV (data sintetis): suhu nyaris konstan, <code>gas_excess</code> kosong. Data asli mudah dikenali: nilainya bervariasi dan <code>gas_excess</code> terisi.</p>
+      </div>
+      <div class="card">
+        <h3>Apakah dasbor bisa menulis ke database?</h3>
+        <p>Tidak. Browser hanya membaca lewat API. Penulisan hanya dilakukan pencatat (dan panel admin untuk daftar node, memakai PIN). Ini disengaja agar kunci rahasia tidak pernah ada di browser.</p>
+      </div>
+      <div class="card">
+        <h3>Kalau internet putus sebentar?</h3>
+        <p>ESP32 dan pencatat menyambung ulang otomatis. Pesan yang gagal terkirim saat putus tidak diulang. Pencatat punya antrean kecil dan mencoba ulang 3 kali bila database sedang bermasalah.</p>
+      </div>
+      <div class="card">
+        <h3>Kenapa harus ada <code>.env</code>?</h3>
+        <p>Isinya alamat dan kunci rahasia. Dipisahkan dari kode agar tidak ikut terunggah ke GitHub. File <code>backend/.env</code> sudah diabaikan Git.</p>
+      </div>
+      <div class="card">
+        <h3>Bagaimana cara memastikan pencatat bekerja?</h3>
+        <p>Lihat <code>backend\logs\backend.log</code>. Baris <code>Data valid: suhu=…</code> berarti data diterima dan disimpan. Di dasbor, rantai status bagian <b>Pencatat</b> hijau bila heartbeat masih segar.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p><b>AntiKobongan</b> — dokumen penjelasan sistem. Dibuat 29 Oktober 2026.</p>
+    <p>Berkas ini statis dan tidak memuat kunci rahasia. Buka dengan klik dua kali, atau dari terminal:</p>
+    <div class="pill-row">
+      <span class="pill"><code>start docs\panduan-sistem.html</code></span>
+      <span class="pill">Tanpa internet</span>
+      <span class="pill">Tanpa pustaka eksternal</span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

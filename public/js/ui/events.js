@@ -6,9 +6,9 @@ import { fill, h, mark } from '../dom.js';
 import { fmtAge, fmtDateTime, fmtNum } from '../format.js';
 
 const KINDS = {
-  RISK_HIGH: { level: 'TINGGI', title: 'Risiko tinggi' },
-  RISK_CRITICAL: { level: 'KRITIS', title: 'Risiko kritis' },
-  RISK_RECOVERED: { level: 'NORMAL', title: 'Risiko kembali normal' },
+  RISK_HIGH: { level: 'TINGGI', title: 'Waspada Bara dan Asap' },
+  RISK_CRITICAL: { level: 'KRITIS', title: 'Kebakaran Aktif' },
+  RISK_RECOVERED: { level: 'NORMAL', title: 'Kembali Normal' },
   NODE_OFFLINE: { level: null, title: 'Node berhenti mengirim' },
   NODE_ONLINE: { level: null, title: 'Node kembali mengirim' },
 };
@@ -35,7 +35,7 @@ function fromLive(alert) {
   return {
     at: alert.at,
     level: alert.recovered ? 'NORMAL' : alert.level,
-    title: alert.recovered ? 'Risiko kembali di bawah 60' : alert.level === 'KRITIS' ? 'Risiko kritis' : 'Risiko tinggi',
+    title: alert.recovered ? 'Kembali Normal' : alert.level === 'KRITIS' ? 'Kebakaran Aktif' : 'Waspada Bara dan Asap',
     detail: `skor ${alert.score}`,
     live: true,
   };

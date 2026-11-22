@@ -6,7 +6,7 @@ import { emit, state } from './store.js';
 import { log } from './log.js';
 
 const controllers = {};
-const POLL = { latest: 30e3, events: 60e3, seriesLive: 60e3, seriesSlow: 5 * 60e3 };
+const POLL = { latest: 10e3, events: 60e3, seriesLive: 15e3, seriesSlow: 5 * 60e3 };
 const timers = [];
 
 function fresh(kind) {

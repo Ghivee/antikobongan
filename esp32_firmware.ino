@@ -1,174 +1,86 @@
 /**
- * ============================================================
- *  AntiKobongan ESP32 DevKit V1 — Firmware Sensor MQTT
- *  Alur: ESP32 -> WiFi -> broker MQTT -> pencatat (Supabase) + dashboard
- *  Broker diatur di secrets.h (default: broker publik HiveMQ tanpa login).
- * ============================================================
+ * AntiKobongan ESP32 DevKit V1
+ * Alur: sensor -> ESP32 (skor, LED, buzzer) -> WiFi -> MQTT -> pencatat + dasbor
  *
- *  Hardware yang dipakai:
- *    - DHT11 (suhu + kelembapan udara)  -> GPIO 4
- *    - MQ-2 AO (gas/asap, ADC mentah)   -> GPIO 34 (WAJIB pembagi tegangan)
- *    - MH Soil Moisture AO              -> GPIO 35
- *    - Buzzer                           -> GPIO 25
- *    - LED merah                        -> GPIO 26
- *    - LED hijau                        -> GPIO 27
- *    - BMP180 (OPSIONAL, belum ada)     -> I2C SDA 21 / SCL 22, alamat 0x77
+ * Hardware:
+ *   BME280  3V3, GND, SDA GPIO21, SCL GPIO22 (alamat 0x76 atau 0x77)
+ *   MQ-2    AO -> GPIO34, wajib pembagi tegangan 10k/20k
+ *   Tanah   AO -> GPIO35
+ *   Buzzer  GPIO25, LED merah GPIO26, LED hijau GPIO27
  *
- *  Library:
- *    - PubSubClient (Nick O'Leary)
- *    - DHT sensor library (Adafruit)
- *    - ArduinoJson (Benoit Blanchon)
- *    - Adafruit BMP085 Library (hanya jika ENABLE_BMP180 = 1)
- *
- *  CATATAN PENTING:
- *    - AO MQ-2 maksimum ~5 V. Gunakan pembagi tegangan
- *      AO -> 10k -> GPIO34 -> 20k -> GND agar aman untuk ADC 3,3 V.
- *    - MQ-2 perlu preheat beberapa menit sebelum pembacaan stabil.
- *    - DHT11 maksimal sekitar 1 pembacaan per detik; interval 2 detik aman untuk pengiriman data realtime.
- *    - SOIL_RAW_DRY / SOIL_RAW_WET HARUS dikalibrasi di tanah kering dan basah.
- *    - Nilai gas dikirim sebagai ADC mentah 0..4095, bukan ppm.
- *    - Jangan simpan kredensial Wi-Fi asli di repo. Untuk Wokwi gunakan
- *      SSID "Wokwi-GUEST" dan password kosong.
- *    - Broker publik HiveMQ hanya untuk uji coba, tidak privat/terjamin.
- *    - Aturan buzzer/LED tidak ditemukan di dokumen proposal. Pemetaan yang
- *      dipakai: hijau < 60, merah >= 60, buzzer >= 80. Sesuaikan bila perlu.
- * ============================================================
+ * Library: PubSubClient, ArduinoJson, Adafruit BME280, Adafruit Unified Sensor.
+ * Kredensial WiFi ditulis langsung di bawah; tidak memakai secrets.h.
  */
 
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
-#include <DHT.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
 #include <ArduinoJson.h>
 #include <time.h>
-#include "secrets.h"
 
-// Nilai default bila secrets.h versi lama belum memuat pengaturan broker.
-#ifndef SECRET_MQTT_HOST
-  #define SECRET_MQTT_HOST "broker.hivemq.com"
-#endif
-#ifndef SECRET_MQTT_TLS
-  #define SECRET_MQTT_TLS 0
-#endif
-#ifndef SECRET_MQTT_PORT
-  #define SECRET_MQTT_PORT (SECRET_MQTT_TLS ? 8883 : 1883)
-#endif
-#ifndef SECRET_MQTT_USERNAME
-  #define SECRET_MQTT_USERNAME ""
-#endif
-#ifndef SECRET_MQTT_PASSWORD
-  #define SECRET_MQTT_PASSWORD ""
-#endif
+// ── WiFi hotspot PP ─────────────────────────────────────────────────────────
+const char* WIFI_SSID     = "PP";
+const char* WIFI_PASSWORD = "qwertyuiop";
 
-// ─── Pilih sensor tekanan (BMP180 belum tersedia secara fisik) ───────────────
-#define ENABLE_BMP180 0
+// ── MQTT ────────────────────────────────────────────────────────────────────
+const char* MQTT_HOST    = "broker.hivemq.com";
+const uint16_t MQTT_PORT = 1883;
+const char* TOPIC_PREFIX = "antikobongan/prototipe-gx7q4m"; // sama dengan backend & dasbor
+const char* NODE_ID      = "esp32-01";
 
-#if ENABLE_BMP180
-  #include <Wire.h>
-  #include <Adafruit_BMP085.h>
-  Adafruit_BMP085 bmp;
-#endif
-
-// ─── Konfigurasi WiFi ────────────────────────────────────────────────────────
-// Kredensial TIDAK disimpan di file ini. Isi secrets.h (lihat secrets.example.h).
-// Untuk Wokwi: SSID "Wokwi-GUEST", password kosong (tidak memakai secrets.h).
-// Untuk perangkat fisik: isi SECRET_WIFI_SSID / SECRET_WIFI_PASSWORD di secrets.h.
-#ifdef WOKWI_SIM
-const char* WIFI_SSID     = "Wokwi-GUEST";
-const char* WIFI_PASSWORD = "";
-#else
-const char* WIFI_SSID     = SECRET_WIFI_SSID;
-const char* WIFI_PASSWORD = SECRET_WIFI_PASSWORD;
-#endif
-
-// ─── Konfigurasi MQTT ────────────────────────────────────────────────────────
-const char* MQTT_HOST     = SECRET_MQTT_HOST;
-const uint16_t MQTT_PORT  = SECRET_MQTT_PORT;
-const char* MQTT_USERNAME = SECRET_MQTT_USERNAME; // kosong = tanpa login (broker publik)
-const char* MQTT_PASSWORD = SECRET_MQTT_PASSWORD;
-const char* TOPIC_PREFIX  = "antikobongan/prototipe-gx7q4m"; // harus sama dengan dashboard & backend
-const char* NODE_ID       = "esp32-01";
-String sensorTopic;
-String statusTopic;
-
-// ─── Interval ────────────────────────────────────────────────────────────────
-const unsigned long PUBLISH_INTERVAL_MS = 15000;
-
-// ─── Pin ─────────────────────────────────────────────────────────────────────
-const uint8_t DHT_PIN          = 4;
-#ifdef WOKWI_SIM
-const uint8_t DHT_TYPE         = DHT22; // part Wokwi yang tersedia adalah DHT22
-#else
-const uint8_t DHT_TYPE         = DHT11;
-#endif
-const uint8_t MQ2_PIN          = 34; // ADC1, input-only
-const uint8_t SOIL_PIN         = 35; // ADC1, input-only
-const uint8_t BUZZER_PIN       = 25;
-const uint8_t LED_RED_PIN      = 26;
-const uint8_t LED_GREEN_PIN    = 27;
-// Polaritas modul buzzer.
-//   false = modul aktif-HIGH (pin HIGH = bunyi)  -> pakai ini jika bunyi terus saat idle
-//   true  = modul aktif-LOW  (pin LOW  = bunyi)
-const bool    BUZZER_ACTIVE_LOW = false;
-
-// ─── Buzzer heartbeat ────────────────────────────────────────────────────────
-// Bunyi HANYA ketika data berhasil terkirim ke broker (publish == true).
-// Tidak akan bunyi jika: WiFi putus, MQTT terputus, publish gagal, atau
-// pembacaan sensor gagal (payload tidak dikirim).
-const unsigned long BUZZER_BEEP_MS = 80; // durasi1 denyut
-
-// ─── Kalibrasi sensor tanah (ADC 12-bit) ─────────────────────────────────────
-// Ukur nilai ADC saat probe di udara/tanah kering dan saat di air/tanah basah.
-const int SOIL_RAW_DRY = 3200;
-const int SOIL_RAW_WET = 1200;
-
-// ─── Kalibrasi gas MQ-2 (ADC 12-bit) ─────────────────────────────────────────
-// GAS_FILTER_N : median bergerak -> buang spike dan dropout (nilai 0 mendadak).
-// GAS_BASE_*   : baseline udara bersih ikut menyesuaikan (drift MQ-2).
-//                naik sangat lambat, turun cepat -> asap tetap terbaca sebagai
-//                selisih (excess).
-// GAS_SPAN     : selisih excess berapa ADC = poin gas penuh (30).
-const uint8_t GAS_FILTER_N  = 5;
-const float   GAS_BASE_UP   = 0.005f;
-const float   GAS_BASE_DOWN = 0.10f;
-const int     GAS_SPAN      = 400;
-
-// ─── Rentang rumus risiko (disetel untuk iklim tropis) ──────────────────────
-// Total 100 poin: suhu 35, kelembapan udara 25, gas 25, kelembapan tanah 15.
-//   suhu  : (suhu - 25) * 2.5, dibatasi 0..35
-//   lembap: (85 - RH) * 0.5, dibatasi 0..25
-//   gas   : gas_excess * 25 / 400, dibatasi 0..25
-//   tanah : (50 - soil%) * 0.3, dibatasi 0..15
-const float TEMP_REF  = 25.0f;
-const float TEMP_STEP = 2.5f;
-const float TEMP_MAX  = 35.0f;
-const float HUM_REF   = 85.0f;
-const float HUM_STEP  = 0.5f;
-const float HUM_MAX   = 25.0f;
-const float GAS_MAX   = 25.0f;
-const float SOIL_REF  = 50.0f;
-const float SOIL_STEP = 0.3f;
-const float SOIL_MAX  = 15.0f;
-
-// ─── Threshold risiko (mengikuti README proyek) ──────────────────────────────
-const int RISK_HIGH     = 60;
-const int RISK_CRITICAL = 80;
-
-// ─── Zona waktu ──────────────────────────────────────────────────────────────
-const long GMT_OFFSET_SEC = 7 * 3600; // UTC+7
+// ── Waktu & interval ────────────────────────────────────────────────────────
+// Mode uji realtime: kirim tiap 3 detik. Untuk produksi kembalikan ke 45000
+// dan setel STALE_SECONDS=180 di backend/.env.
+const unsigned long PUBLISH_INTERVAL_MS = 3000;
+const long GMT_OFFSET_SEC = 7 * 3600; // WIB
 const int  DAYLIGHT_OFFSET_SEC = 0;
 const char* NTP_SERVER_1 = "pool.ntp.org";
 const char* NTP_SERVER_2 = "time.nist.gov";
 
-// ─── Objek ───────────────────────────────────────────────────────────────────
-DHT dht(DHT_PIN, DHT_TYPE);
-#if SECRET_MQTT_TLS
-WiFiClientSecure wifiClient; // TLS ke broker privat (HiveMQ Cloud / EMQX)
-#else
+// ── Pin ─────────────────────────────────────────────────────────────────────
+const uint8_t PIN_MQ2    = 34; // ADC1, input-only
+const uint8_t PIN_SOIL   = 35; // ADC1, input-only
+const uint8_t PIN_BUZZER = 25;
+const uint8_t PIN_LED_RED   = 26;
+const uint8_t PIN_LED_GREEN = 27;
+const uint8_t I2C_SDA = 21;
+const uint8_t I2C_SCL = 22;
+
+const bool BUZZER_ACTIVE_LOW = false; // true bila modul buzzer aktif-LOW
+const unsigned long BUZZER_BEEP_MS = 80;
+
+// ── Kalibrasi tanah (ADC 12-bit) ────────────────────────────────────────────
+const int SOIL_RAW_DRY = 3200;
+const int SOIL_RAW_WET = 1200;
+
+// ── Filter gas MQ-2 ─────────────────────────────────────────────────────────
+const uint8_t GAS_FILTER_N  = 5;
+const float   GAS_BASE_UP   = 0.005f; // baseline naik lambat
+const float   GAS_BASE_DOWN = 0.10f;  // baseline turun cepat
+const int     GAS_SPAN      = 400;    // selisih 400 ADC = 25 poin
+
+// ── Rumus risiko (total 100) ────────────────────────────────────────────────
+// suhu 35 + kelembapan udara 25 + gas 25 + kelembapan tanah 15
+const float TEMP_REF  = 25.0f, TEMP_STEP = 2.5f, TEMP_MAX = 35.0f;
+const float HUM_REF   = 85.0f, HUM_STEP  = 0.5f, HUM_MAX  = 25.0f;
+const float GAS_MAX   = 25.0f;
+const float SOIL_REF  = 50.0f, SOIL_STEP = 0.3f, SOIL_MAX = 15.0f;
+
+// ── Ambang kelas peringatan ─────────────────────────────────────────────────
+const int RISK_HIGH     = 60; // Waspada Bara dan Asap
+const int RISK_CRITICAL = 80; // Kebakaran Aktif
+
+// ── Objek & state ───────────────────────────────────────────────────────────
+Adafruit_BME280 bme;
 WiFiClient wifiClient;
-#endif
 PubSubClient mqttClient(wifiClient);
 
+String sensorTopic;
+String statusTopic;
+bool bmeReady = false;
+unsigned long lastBmeInitMs = 0;
 unsigned long lastPublishMs = 0;
 unsigned long lastWifiAttemptMs = 0;
 unsigned long lastMqttAttemptMs = 0;
@@ -176,61 +88,51 @@ unsigned long mqttBackoffMs = 2000;
 bool buzzerActive = false;
 unsigned long buzzerOffMs = 0;
 
-// state filter gas
 int     gasHist[GAS_FILTER_N];
 uint8_t gasHistCount = 0;
 uint8_t gasHistIdx   = 0;
 float   gasBaseline  = -1.0f;
 
-// ─── Util ────────────────────────────────────────────────────────────────────
+// ── Util ────────────────────────────────────────────────────────────────────
 int medianGasHistory() {
   int tmp[GAS_FILTER_N];
   uint8_t n = gasHistCount;
   for (uint8_t i = 0; i < n; i++) tmp[i] = gasHist[i];
   for (uint8_t i = 1; i < n; i++) {
-    int k = tmp[i];
-    int j = i - 1;
-    while (j >= 0 && tmp[j] > k) { tmp[j + 1] = tmp[j]; j--; }
-    tmp[j + 1] = k;
+    int key = tmp[i], j = i - 1;
+    while (j >= 0 && tmp[j] > key) { tmp[j + 1] = tmp[j]; j--; }
+    tmp[j + 1] = key;
   }
   return (n % 2) ? tmp[n / 2] : (tmp[n / 2 - 1] + tmp[n / 2]) / 2;
 }
 
-// baca gas + median filter (membuang spike/dropout)
 int readGasFiltered() {
-  gasHist[gasHistIdx] = analogRead(MQ2_PIN);
+  gasHist[gasHistIdx] = analogRead(PIN_MQ2);
   gasHistIdx = (gasHistIdx + 1) % GAS_FILTER_N;
   if (gasHistCount < GAS_FILTER_N) gasHistCount++;
   return medianGasHistory();
 }
 
-// gasExcess = nilai terfilter − baseline udara bersih (tidak pernah negatif)
 int updateGasBaseline(int gasFiltered) {
-  if (gasBaseline < 0) {
-    gasBaseline = (float)gasFiltered;
-  } else if (gasFiltered < gasBaseline) {
-    gasBaseline += GAS_BASE_DOWN * (gasFiltered - gasBaseline);
-  } else {
-    gasBaseline += GAS_BASE_UP * (gasFiltered - gasBaseline);
-  }
+  if (gasBaseline < 0) gasBaseline = (float)gasFiltered;
+  else if (gasFiltered < gasBaseline) gasBaseline += GAS_BASE_DOWN * (gasFiltered - gasBaseline);
+  else gasBaseline += GAS_BASE_UP * (gasFiltered - gasBaseline);
   int excess = gasFiltered - (int)(gasBaseline + 0.5f);
   return excess > 0 ? excess : 0;
 }
 
-// gasExcess sudah dinormalisasi terhadap baseline (0 = udara bersih)
 int calcRiskScore(float suhu, float kelembapan, float gasExcess, float soilPercent) {
   float score = 0;
   score += constrain((suhu - TEMP_REF) * TEMP_STEP, 0.0f, TEMP_MAX);
   score += constrain((HUM_REF - kelembapan) * HUM_STEP, 0.0f, HUM_MAX);
   score += constrain(gasExcess * GAS_MAX / GAS_SPAN, 0.0f, GAS_MAX);
   score += constrain((SOIL_REF - soilPercent) * SOIL_STEP, 0.0f, SOIL_MAX);
-  score = constrain(score, 0.0f, 100.0f);
-  return (int)(score + 0.5f);
+  return (int)(constrain(score, 0.0f, 100.0f) + 0.5f);
 }
 
 const char* riskLevel(int score) {
-  if (score >= 80) return "KRITIS";
-  if (score >= 60) return "TINGGI";
+  if (score >= RISK_CRITICAL) return "KRITIS";
+  if (score >= RISK_HIGH) return "TINGGI";
   if (score >= 40) return "SEDANG";
   return "NORMAL";
 }
@@ -249,27 +151,38 @@ String isoTimestamp() {
   return String(buf) + "+07:00";
 }
 
-// ─── Buzzer (detak jantung koneksi) ──────────────────────────────────────────
-void buzzerWrite(bool on) {
-#ifdef WOKWI_SIM
-  if (on) tone(BUZZER_PIN, 2000);
-  else noTone(BUZZER_PIN);
-#else
-  digitalWrite(BUZZER_PIN, ((BUZZER_ACTIVE_LOW ? !on : on)) ? HIGH : LOW);
-#endif
+// ── BME280 ──────────────────────────────────────────────────────────────────
+bool initBme() {
+  bool ok = bme.begin(0x76, &Wire) || bme.begin(0x77, &Wire);
+  if (!ok) {
+    Serial.println("[BME280] Tidak ditemukan di 0x76/0x77. Cek VIN=3V3, GND, SDA=21, SCL=22.");
+    Serial.printf("[BME280] sensorID=0x%02X\n", bme.sensorID());
+    return false;
+  }
+  // Mode cuaca: tekanan oversampling tinggi + filter IIR agar stabil.
+  bme.setSampling(Adafruit_BME280::MODE_NORMAL,
+                  Adafruit_BME280::SAMPLING_X2,    // suhu
+                  Adafruit_BME280::SAMPLING_X16,   // tekanan
+                  Adafruit_BME280::SAMPLING_X1,    // kelembapan
+                  Adafruit_BME280::FILTER_X16,
+                  Adafruit_BME280::STANDBY_MS_500);
+  Serial.println("[BME280] Siap (mode cuaca).");
+  return true;
 }
 
-// Satu denyut pendek. Hanya dipanggil ketika publish BERHASIL.
+// ── Indikator lokal ─────────────────────────────────────────────────────────
+void buzzerWrite(bool on) {
+  digitalWrite(PIN_BUZZER, (BUZZER_ACTIVE_LOW ? !on : on) ? HIGH : LOW);
+}
+
 void heartbeatBeep(unsigned long ms = BUZZER_BEEP_MS) {
   buzzerWrite(true);
   buzzerActive = true;
   buzzerOffMs = millis() + ms;
 }
 
-// Matikan buzzer setelah durasi tercapai (non-blocking, tanpa delay()).
 void maintainBuzzer() {
-  if (!buzzerActive) return;
-  if ((long)(millis() - buzzerOffMs) >= 0) {
+  if (buzzerActive && (long)(millis() - buzzerOffMs) >= 0) {
     buzzerWrite(false);
     buzzerActive = false;
   }
@@ -277,21 +190,20 @@ void maintainBuzzer() {
 
 void applyIndicators(int score) {
   bool red = score >= RISK_HIGH;
-  bool green = !red;
-  digitalWrite(LED_GREEN_PIN, green ? HIGH : LOW);
-  digitalWrite(LED_RED_PIN, red ? HIGH : LOW);
+  digitalWrite(PIN_LED_GREEN, red ? LOW : HIGH);
+  digitalWrite(PIN_LED_RED, red ? HIGH : LOW);
 }
 
 void setupPins() {
-  pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(LED_RED_PIN, OUTPUT);
-  pinMode(LED_GREEN_PIN, OUTPUT);
-  buzzerWrite(false); // idle: senyap
-  digitalWrite(LED_RED_PIN, LOW);
-  digitalWrite(LED_GREEN_PIN, LOW);
+  pinMode(PIN_BUZZER, OUTPUT);
+  pinMode(PIN_LED_RED, OUTPUT);
+  pinMode(PIN_LED_GREEN, OUTPUT);
+  buzzerWrite(false);
+  digitalWrite(PIN_LED_RED, LOW);
+  digitalWrite(PIN_LED_GREEN, LOW);
 }
 
-// ─── WiFi non-blocking ───────────────────────────────────────────────────────
+// ── WiFi & MQTT non-blocking ────────────────────────────────────────────────
 void startWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
@@ -309,10 +221,8 @@ void maintainWiFi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
-// ─── MQTT non-blocking dengan backoff ────────────────────────────────────────
 void maintainMQTT() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  if (mqttClient.connected()) return;
+  if (WiFi.status() != WL_CONNECTED || mqttClient.connected()) return;
   unsigned long now = millis();
   if (now - lastMqttAttemptMs < mqttBackoffMs) return;
   lastMqttAttemptMs = now;
@@ -321,15 +231,12 @@ void maintainMQTT() {
   uint32_t chipId = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFFULL);
   snprintf(clientId, sizeof(clientId), "ak-esp32-%s-%08X", NODE_ID, chipId);
 
-  Serial.printf("[MQTT] Mencoba terhubung ke %s:%u sebagai %s...\n", MQTT_HOST, MQTT_PORT, clientId);
-  // LWT retained: broker mengumumkan "offline" jika koneksi ESP putus mendadak.
-  const char* user = MQTT_USERNAME[0] ? MQTT_USERNAME : nullptr;
-  const char* pass = MQTT_USERNAME[0] ? MQTT_PASSWORD : nullptr;
-  if (mqttClient.connect(clientId, user, pass, statusTopic.c_str(), 1, true, "offline")) {
+  Serial.printf("[MQTT] Menghubungkan ke %s:%u sebagai %s...\n", MQTT_HOST, MQTT_PORT, clientId);
+  // LWT retained: broker mengumumkan offline bila ESP putus mendadak.
+  if (mqttClient.connect(clientId, nullptr, nullptr, statusTopic.c_str(), 1, true, "offline")) {
     bool statusOk = mqttClient.publish(statusTopic.c_str(), "online", true);
     Serial.println("[MQTT] Terhubung.");
-    Serial.printf("[MQTT] Status online %s; publish sensor ke: %s\n",
-                  statusOk ? "OK" : "GAGAL", sensorTopic.c_str());
+    Serial.printf("[MQTT] Status online %s; publish ke %s\n", statusOk ? "OK" : "GAGAL", sensorTopic.c_str());
     mqttBackoffMs = 2000;
   } else {
     Serial.printf("[MQTT] Gagal, rc=%d. Backoff %lu ms.\n", mqttClient.state(), mqttBackoffMs);
@@ -337,120 +244,84 @@ void maintainMQTT() {
   }
 }
 
-// ─── Publish sensor ──────────────────────────────────────────────────────────
+// ── Publish sensor ──────────────────────────────────────────────────────────
 void publishSensor() {
-  float suhu = dht.readTemperature();
-  float kelembapan = dht.readHumidity();
-
-  // DHT11 gagal: jangan kirim suhu/kelembapan palsu atau nilai lama.
-  if (isnan(suhu) || isnan(kelembapan)) {
-    Serial.println("[SENSOR] DHT11 gagal dibaca; payload tidak dikirim.");
-    return;
+  if (!bmeReady) {
+    unsigned long nowMs = millis();
+    if (nowMs - lastBmeInitMs >= 30000UL) { lastBmeInitMs = nowMs; bmeReady = initBme(); }
+    if (!bmeReady) { Serial.println("[SENSOR] BME280 tidak siap; payload tidak dikirim."); return; }
   }
 
-  int gasFiltered = readGasFiltered();     // median filter, buang spike/dropout
-  int gasExcess   = updateGasBaseline(gasFiltered); // selisih vs baseline bersih
-  int soilRaw = analogRead(SOIL_PIN);
-  float soilPercent = (float)(SOIL_RAW_DRY - soilRaw) * 100.0f /
-                      (float)(SOIL_RAW_DRY - SOIL_RAW_WET);
+  float suhu = bme.readTemperature();
+  float kelembapan = bme.readHumidity();
+  float pressureHpa = bme.readPressure() / 100.0f;
+  if (isnan(suhu) || isnan(kelembapan) || suhu < -40 || suhu > 85 || kelembapan < 0 || kelembapan > 100) {
+    Serial.println("[SENSOR] Pembacaan BME280 tidak valid; payload tidak dikirim.");
+    return;
+  }
+  bool pressureValid = !isnan(pressureHpa) && pressureHpa > 300.0f && pressureHpa < 1100.0f;
+
+  int gasFiltered = readGasFiltered();
+  int gasExcess = updateGasBaseline(gasFiltered);
+  int soilRaw = analogRead(PIN_SOIL);
+  float soilPercent = (float)(SOIL_RAW_DRY - soilRaw) * 100.0f / (float)(SOIL_RAW_DRY - SOIL_RAW_WET);
   soilPercent = constrain(soilPercent, 0.0f, 100.0f);
 
   int riskScore = calcRiskScore(suhu, kelembapan, (float)gasExcess, soilPercent);
   applyIndicators(riskScore);
 
-  StaticJsonDocument<384> doc;
+  JsonDocument doc;
   doc["suhu"] = round(suhu * 10) / 10.0;
   doc["kelembapan"] = round(kelembapan * 10) / 10.0;
-  doc["gas"] = gasFiltered;                 // nilai stabil hasil filter
-  doc["gas_excess"] = gasExcess;            // selisih vs baseline (untuk debug)
+  doc["gas"] = gasFiltered;
+  doc["gas_excess"] = gasExcess;
   doc["kelembapan_tanah"] = (int)round(soilPercent);
   doc["riskScore"] = riskScore;
   doc["status"] = riskLevel(riskScore);
+  if (pressureValid) doc["tekanan"] = round(pressureHpa * 100) / 100.0; // 2 desimal
 
-  // tekanan hanya dikirim jika BMP180 aktif DAN pembacaan valid
-  bool pressureValid = false;
-  float pressureHpa = 0;
-#if ENABLE_BMP180
-  pressureHpa = bmp.readPressure() / 100.0f;
-  pressureValid = pressureHpa > 300.0f && pressureHpa < 1100.0f;
-  if (pressureValid) doc["tekanan"] = round(pressureHpa * 10) / 10.0;
-#endif
-
-  // timestamp hanya jika NTP sinkron; jangan mengarang waktu
   String timestamp = isoTimestamp();
   if (timestamp.length() > 0) doc["timestamp"] = timestamp;
 
   char payload[384];
   size_t length = serializeJson(doc, payload, sizeof(payload));
-  if (length == 0) {
-    Serial.println("[JSON] Gagal membuat payload.");
-    return;
-  }
+  if (length == 0) { Serial.println("[JSON] Gagal membuat payload."); return; }
 
-  bool ok = mqttClient.publish(sensorTopic.c_str(), payload, false); // QoS 0, retain=false
-  Serial.printf("[PUB] %s | %s | %s\n", sensorTopic.c_str(), payload, ok ? "OK" : "GAGAL");
-
-  // Detak jantung: berbunyi HANYA jika data benar-benar terkirim ke broker.
+  bool ok = mqttClient.publish(sensorTopic.c_str(), payload, false);
+  Serial.printf("[PUB] %s | %s\n", ok ? "OK" : "GAGAL", payload);
   if (ok) heartbeatBeep();
-
-  if (!pressureValid) {
-    static bool warnedPressure = false;
-    if (!warnedPressure) {
-      Serial.println("[SENSOR] tekanan tidak tersedia (BMP180 nonaktif/tidak valid).");
-      warnedPressure = true;
-    }
-  }
 }
 
-// ─── Setup ───────────────────────────────────────────────────────────────────
+// ── Setup & loop ────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n\n=== AntiKobongan ESP32 Node ===");
+  Serial.println("\n=== AntiKobongan ESP32 Node ===");
   sensorTopic = String(TOPIC_PREFIX) + "/" + NODE_ID + "/sensor";
   statusTopic = String(TOPIC_PREFIX) + "/" + NODE_ID + "/status";
-  Serial.printf("Node ID : %s\n", NODE_ID);
-  Serial.printf("Prefix  : %s\n", TOPIC_PREFIX);
-  Serial.printf("Topic   : %s\n", sensorTopic.c_str());
-  Serial.printf("Status  : %s\n\n", statusTopic.c_str());
+  Serial.printf("Node   : %s\nPrefix : %s\nTopic  : %s\nStatus : %s\n\n",
+                NODE_ID, TOPIC_PREFIX, sensorTopic.c_str(), statusTopic.c_str());
 
   setupPins();
-  dht.begin();
+  Wire.begin(I2C_SDA, I2C_SCL);
+  bmeReady = initBme();
 
-  // Uji buzzer sekali di boot (pendek) untuk memastikan polaritas benar.
-  heartbeatBeep(300);
-  Serial.println("[BZ] Uji buzzer 1 denyut. Setelah ini bunyi = publish berhasil.");
+  heartbeatBeep(300); // uji buzzer sekali saat boot
+  Serial.println("[BZ] Uji buzzer. Setelah ini bunyi = publish berhasil.");
 
   analogReadResolution(12);
-  analogSetPinAttenuation(MQ2_PIN, ADC_11db);
-  analogSetPinAttenuation(SOIL_PIN, ADC_11db);
-
-#if ENABLE_BMP180
-  Wire.begin(21, 22);
-  if (!bmp.begin()) {
-    Serial.println("[BMP180] Tidak ditemukan di alamat 0x77. Periksa wiring.");
-  } else {
-    Serial.println("[BMP180] Siap.");
-  }
-#else
-  Serial.println("[BMP180] Dinonaktifkan (ENABLE_BMP180=0). Field tekanan tidak dikirim.");
-#endif
+  analogSetPinAttenuation(PIN_MQ2, ADC_11db);
+  analogSetPinAttenuation(PIN_SOIL, ADC_11db);
 
   configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER_1, NTP_SERVER_2);
   Serial.println("[NTP] Sinkronisasi waktu dimulai (UTC+7).");
 
-#if SECRET_MQTT_TLS
-  // Sertifikat tidak diverifikasi agar mudah dipasang; untuk produksi ganti
-  // dengan wifiClient.setCACert(<root CA broker>).
-  wifiClient.setInsecure();
-#endif
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setKeepAlive(60);
   mqttClient.setBufferSize(512);
   startWiFi();
 }
 
-// ─── Loop ────────────────────────────────────────────────────────────────────
 void loop() {
   maintainWiFi();
   maintainMQTT();
@@ -460,10 +331,7 @@ void loop() {
   unsigned long now = millis();
   if (now - lastPublishMs >= PUBLISH_INTERVAL_MS) {
     lastPublishMs = now;
-    if (mqttClient.connected()) {
-      publishSensor();
-    } else {
-      Serial.println("[PUB] Dilewati: MQTT belum terhubung.");
-    }
+    if (mqttClient.connected()) publishSensor();
+    else Serial.println("[PUB] Dilewati: MQTT belum terhubung.");
   }
 }

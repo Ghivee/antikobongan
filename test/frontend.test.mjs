@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { components, levelOf } from '../public/js/risk.js';
-import { parseTopic, validateSensor } from '../public/js/validate.js';
+import { parseStatus, parseTopic, validateSensor } from '../public/js/validate.js';
+import { SENSOR_STALE_MS } from '../public/js/derive.js';
 import { fmtAge, fmtDateTime, fmtNum, fromLocalInput, toLocalInput } from '../public/js/format.js';
 import { buildModel } from '../public/js/charts.js';
 
@@ -31,6 +32,18 @@ test('topik: hanya sensor & status dari prefix yang benar', () => {
   assert.ok(parseTopic(`${PREFIX}/esp32-01/alert`, PREFIX).error);
   assert.ok(parseTopic(`${PREFIX}/<img src=x>/sensor`, PREFIX).error);
   assert.ok(parseTopic(`lain/esp32-01/sensor`, PREFIX).error);
+});
+
+test('status node: hanya online/offline yang diterima', () => {
+  assert.equal(parseStatus('online'), 'online');
+  assert.equal(parseStatus(' offline '), 'offline');
+  for (const bad of ['ONLINE', 'Offline', 'mati', '', null, undefined, 'online2']) {
+    assert.equal(parseStatus(bad), null);
+  }
+});
+
+test('stale data sensor 15 detik (5 x interval 3 detik)', () => {
+  assert.equal(SENSOR_STALE_MS, 15_000);
 });
 
 test('payload sensor divalidasi; isi berbahaya tidak lolos', () => {

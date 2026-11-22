@@ -13,7 +13,9 @@ export const METRICS = [
   { key: 'rh', label: 'Kelembapan udara', short: 'Kelembapan', unit: '%', avg: 'rh_avg', min: 'rh_min', max: 'rh_max', live: 'kelembapan', dec: 0, y: [0, 100], step: 25, spark: [0, 100] },
   { key: 'gas', label: 'Gas/asap', short: 'Gas/asap', unit: 'ADC', avg: 'gas_avg', min: 'gas_min', max: 'gas_max', live: 'gas', dec: 0, y: [0, 1000], grow: true, spark: [0, 1500], hint: 'Nilai mentah sensor MQ-2 (0–4095), belum dikalibrasi ke ppm.' },
   { key: 'tanah', label: 'Kelembapan tanah', short: 'Tanah', unit: '%', avg: 'tanah_avg', min: 'tanah_min', max: 'tanah_max', live: 'kelembapan_tanah', dec: 0, y: [0, 100], step: 25, spark: [0, 100] },
-  { key: 'tekanan', label: 'Tekanan udara', short: 'Tekanan', unit: 'hPa', avg: 'tekanan_avg', min: 'tekanan_avg', max: 'tekanan_avg', live: 'tekanan', dec: 1, y: [990, 1020], step: 10, spark: [990, 1020], optional: true },
+  // Tekanan berubah sangat lambat. Sumbu Y otomatis mengikuti data (bukan
+  // 990–1020) supaya variasi 0,1–1 hPa tetap terlihat.
+  { key: 'tekanan', label: 'Tekanan udara', short: 'Tekanan', unit: 'hPa', avg: 'tekanan_avg', min: 'tekanan_avg', max: 'tekanan_avg', live: 'tekanan', dec: 2, auto: true, minSpan: 0.3, fallback: [960, 1000], optional: true },
 ];
 export const metricDef = (key) => METRICS.find((d) => d.key === key) || METRICS[0];
 
@@ -117,6 +119,13 @@ export function rowAt(model, x) {
 }
 
 function yRange(def, ext, base = def.y) {
+  // Sumbu otomatis: jendela mengikuti data dengan sedikit ruang atas-bawah.
+  if (def.auto) {
+    if (!ext) return def.fallback || [0, 100];
+    const span = Math.max(ext.max - ext.min, def.minSpan || 1);
+    const pad = span * 0.2;
+    return [Math.floor((ext.min - pad) * 10) / 10, Math.ceil((ext.max + pad) * 10) / 10];
+  }
   let [lo, hi] = base;
   if (ext) {
     const step = def.step || 1;
@@ -184,20 +193,22 @@ const gapsPlugin = {
       ctx.beginPath();
       ctx.rect(left, area.top, right - left, height);
       ctx.clip();
-      ctx.fillStyle = 'rgba(138, 144, 135, 0.07)';
+      // Bidang jeda data. Di grafik mini dan tren kartu cukup bidang yang
+      // sangat samar; arsir diagonal hanya di grafik utama agar tidak terlihat
+      // seperti bayangan putih di belakang garis.
+      ctx.fillStyle = ak.mini || ak.spark ? 'rgba(138, 144, 135, 0.035)' : 'rgba(138, 144, 135, 0.06)';
       ctx.fillRect(left, area.top, right - left, height);
-      // Tren latar kartu: cukup bidang samar, tanpa arsir.
-      if (ak.spark) { ctx.restore(); continue; }
-      ctx.strokeStyle = 'rgba(138, 144, 135, 0.14)';
+      if (ak.mini || ak.spark) { ctx.restore(); continue; }
+      ctx.strokeStyle = 'rgba(138, 144, 135, 0.1)';
       ctx.lineWidth = 1;
-      for (let sx = left - height; sx < right; sx += ak.spark ? 5 : 8) {
+      for (let sx = left - height; sx < right; sx += 8) {
         ctx.beginPath();
         ctx.moveTo(sx, area.bottom);
         ctx.lineTo(sx + height, area.top);
         ctx.stroke();
       }
       ctx.restore();
-      if (!ak.spark && !ak.mini && right - left > 96) {
+      if (right - left > 96) {
         ctx.save();
         ctx.fillStyle = colors.text2;
         ctx.font = '12px "Public Sans", system-ui, sans-serif';
@@ -316,12 +327,12 @@ function lineOptions(ak, onHover, mini) {
         type: timeAxis, grid: { color: colors.line, drawTicks: false }, border: { display: false },
         ticks: { color: colors.text3, font: { size: 12 }, maxRotation: 0, autoSkip: Boolean(mini), autoSkipPadding: 16, maxTicksLimit: mini ? 6 : 14, padding: mini ? 4 : 6, callback: (v) => fmtTick(Number(v), ak.model ? ak.model.to - ak.model.from : 0) },
       },
-      y: { grid: { color: colors.line, drawTicks: false }, border: { display: false }, ticks: { color: colors.text3, font: { size: 12 }, padding: mini ? 4 : 6, maxTicksLimit: mini ? 4 : 11, callback: (v) => fmtNum(v, 0) } },
+      y: { grid: { color: colors.line, drawTicks: false }, border: { display: false }, ticks: { color: colors.text3, font: { size: 12 }, padding: mini ? 4 : 6, maxTicksLimit: mini ? 4 : 11, callback: (v) => fmtNum(v, ak.dec || 0) } },
     },
   };
 }
 
-const NICE = [1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000];
+const NICE = [0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000];
 
 function applyScales(chart, model, def, mini) {
   chart.options.scales.x.min = model.from;
@@ -336,7 +347,8 @@ function applyScales(chart, model, def, mini) {
   const [lo, hi] = yRange(def, extent(model, def.key));
   chart.options.scales.y.min = lo;
   chart.options.scales.y.max = hi;
-  chart.options.scales.y.ticks.stepSize = mini ? NICE.find((c) => (hi - lo) / c <= 4) : def.step;
+  // Sumbu otomatis biarkan Chart.js memilih tick; sumbu tetap memakai langkah tetap.
+  chart.options.scales.y.ticks.stepSize = def.auto ? undefined : (mini ? NICE.find((c) => (hi - lo) / c <= 4) : def.step);
 }
 
 // ── Grafik utama ──────────────────────────────────────────────────────────
@@ -349,7 +361,7 @@ export function createMainChart(container, { onHover }) {
   const canvas = h('canvas', { role: 'img', 'aria-label': 'Grafik tren sensor' });
   container.append(canvas);
   let current = null;
-  const ak = { model: null, metric: 'risk', hoverX: null };
+  const ak = { model: null, metric: 'risk', hoverX: null, dec: 0 };
   const chart = new window.Chart(canvas, { type: 'line', data: { datasets: [] }, options: lineOptions(ak, hoverGuard(canvas, (x) => setHover(x)), false) });
   chart.$ak = ak;
 
@@ -368,6 +380,7 @@ export function createMainChart(container, { onHover }) {
       }
       chart.$ak.model = model;
       chart.$ak.metric = def.key;
+      chart.$ak.dec = def.dec;
       setData(chart, model, def);
       applyScales(chart, model, def, false);
       chart.update('none');
@@ -408,12 +421,12 @@ export function createOverview(container, { onHover, onPick }) {
     const plot = h('div', { class: 'ov-plot' });
     const canvas = h('canvas', { role: 'img', 'aria-label': `Grafik ${def.label.toLowerCase()}` });
     plot.append(canvas);
-    const title = def.unit ? `${def.label} (${def.unit})` : `${def.label} (/100)`;
+    const title = def.unit ? `${def.label} (${def.unit})` : `${def.label} (0–100)`;
     const head = h('button', { type: 'button', class: 'ov-head', title: `Buka grafik ${def.label.toLowerCase()} saja`, onclick: () => onPick(def.key) },
       h('span', { class: 'ov-label', text: title }), range);
     const cell = h('div', { class: 'ov-cell', dataset: { metric: def.key } }, head, plot);
     grid.append(cell);
-    const ak = { model: null, metric: def.key, hoverX: null, mini: true };
+    const ak = { model: null, metric: def.key, hoverX: null, mini: true, dec: def.dec };
     const chart = new window.Chart(canvas, { type: 'line', data: { datasets: datasets(def.key === 'risk', false) }, options: lineOptions(ak, hoverGuard(canvas, (x) => setHover(x)), true) });
     chart.$ak = ak;
       cells.set(def.key, { def, cell, chart, range });

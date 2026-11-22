@@ -1,11 +1,11 @@
-// Bilah status ringkas di topbar (Node · Broker · Pencatat · Database) + rinciannya.
+// Bilah status ringkas di topbar (Node · Sensor · Broker · Pencatat · Database) + rinciannya.
 
 import { state } from '../store.js';
 import { chain } from '../derive.js';
 import { fill, h, pick } from '../dom.js';
 
 const ST = ['ok', 'warn', 'bad', 'idle'];
-const SHORT = { node: 'Node', broker: 'Broker', logger: 'Pencatat', db: 'Database' };
+const SHORT = { node: 'Node', sensor: 'Sensor', broker: 'Broker', logger: 'Pencatat', db: 'Database' };
 
 function age(link) {
   // Umur ringkas dari kalimat detail ("(3 hari lalu)" → "3 hari").

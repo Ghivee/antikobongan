@@ -145,7 +145,8 @@ function onSensor(nodeId, result) {
   if (tail.length > TAIL_MAX) tail.splice(0, tail.length - TAIL_MAX);
   state.live[nodeId] = {
     values: result.values, riskScore: result.riskScore, status: result.status, sensorTime: result.sensorTime,
-    receivedAt, prev: prevLive && prevLive.receivedAt ? prevLive.values : null, lwt: { state: 'online', at: receivedAt }, tail,
+    receivedAt, prev: prevLive && prevLive.receivedAt ? prevLive.values : null,
+    lwt: prevLive && prevLive.lwt ? prevLive.lwt : null, tail,
   };
   if (nodeId === state.activeId && (!prevLive || !prevLive.receivedAt)) refreshSpark();
 
@@ -158,7 +159,7 @@ function onSensor(nodeId, result) {
     if (up) {
       alerts.unshift({ level, score: result.riskScore, at: receivedAt });
       const node = state.nodes.find((n) => n.node_id === nodeId);
-      toast({ level, title: `${LEVEL_INFO[level].label}: skor ${result.riskScore}/100`, text: `${nodeLabel(node)} · ${fmtDateTime(receivedAt, { seconds: true })} · ${LEVEL_INFO[level].note}`, sticky: level === 'KRITIS' });
+      toast({ level, title: `${LEVEL_INFO[level].label}: skor ${result.riskScore} dari 100`, text: `${nodeLabel(node)} · ${fmtDateTime(receivedAt, { seconds: true })} · ${LEVEL_INFO[level].note}`, sticky: level === 'KRITIS' });
     } else if (rank[level] === 0) {
       alerts.unshift({ level: 'NORMAL', score: result.riskScore, at: receivedAt, recovered: true });
     }
@@ -168,10 +169,10 @@ function onSensor(nodeId, result) {
   emit('live');
 }
 
-function onStatus(nodeId, status) {
+function onStatus(nodeId, status, retained = false) {
   const live = state.live[nodeId] || (state.live[nodeId] = { values: {}, riskScore: null, receivedAt: null, prev: null, tail: [] });
-  live.lwt = { state: status, at: Date.now() };
-  log(`Status broker untuk ${nodeId}: ${status}.`, status === 'online' ? 'ok' : 'warn');
+  live.lwt = { state: status, at: Date.now(), retained };
+  log(`Status broker untuk ${nodeId}: ${status}${retained ? ' (retained, terakhir diketahui)' : ''}.`, status === 'online' ? 'ok' : 'warn');
   emit('live');
 }
 
@@ -275,8 +276,9 @@ function renderMap(now = Date.now()) {
     if (Number.isFinite(node.ketinggian)) rows.push(['Ketinggian', `${fmtNum(node.ketinggian, 0)} mdpl`]);
     return { id: node.node_id, lat: node.lat, lon: node.lon, conn: link.st, active: node.node_id === state.activeId, title: `${nodeLabel(node)}${node.gunung ? ` · ${node.gunung}` : ''}`, rows };
   });
-  // Gambar ulang hanya bila isi berubah (umur relatif dibulatkan ke menit) agar popup tidak tertutup tiap detik.
-  const sig = JSON.stringify(markers.map((m) => [m.id, m.lat, m.lon, m.conn, m.active, m.rows.slice(0, -1)]));
+  // Gambar ulang hanya bila isi berubah. Baris "Pembacaan" (umur relatif)
+  // diabaikan agar popup tidak diperbarui tiap detik; popup tetap terbuka.
+  const sig = JSON.stringify(markers.map((m) => [m.id, m.lat, m.lon, m.conn, m.active, m.rows.filter(([k]) => k !== 'Pembacaan')]));
   if (sig === markerSig) return;
   markerSig = sig;
   renderMarkers(markers, { onSelect: selectNode });
