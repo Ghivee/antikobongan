@@ -1,136 +1,95 @@
-# AntiKobongan — Pemantauan Risiko Kebakaran Hutan
+# AntiKobongan
 
-Dasbor IoT untuk memantau suhu, kelembapan udara, gas/asap, dan kelembapan
-tanah dari node ESP32. Data live dikirim lewat MQTT, pencatat Python menyimpan
-riwayat ke Supabase dan mengirim notifikasi Telegram, dan dasbor menampilkan
-keduanya. Semua yang tampil di dasbor adalah data sensor asli; tidak ada mode
-simulasi.
+Forest fire risk monitoring. An ESP32 node publishes temperature, air humidity, gas and smoke, and soil moisture over MQTT. A Python logger stores the history in Supabase and can send Telegram alerts. A web dashboard shows the live data and the history. Everything the dashboard shows is real sensor data; there is no simulation mode.
 
-## Arsitektur
+[Bahasa Indonesia](README.id.md)
+
+## Architecture
 
 ```
-ESP32 ──MQTT──► broker (publik / privat + TLS) ◄──WSS── dasbor (Vercel)
-                         │                                  ▲
-                         ▼                                  │ /api/*
-              pencatat Python (laptop/PC)                   │
-               ├─► Supabase ─────────────────────────────────┘
-               └─► Telegram (opsional)
+ESP32 --MQTT--> broker (public, or private with TLS) <--WSS-- dashboard (Vercel)
+                         |                                      ^
+                         v                                      | /api/*
+              Python logger (laptop or PC)                      |
+               +--> Supabase -----------------------------------+
+               +--> Telegram (optional)
 ```
 
-| Bagian | Lokasi |
-|---|---|
-| Dasbor (HTML/CSS/JS modul ES, tanpa build) | `public/` |
-| API serverless (dipakai Vercel **dan** `server.js`) | `api/*.js` → `lib/handlers/*.js` |
-| Pencatat (MQTT → validasi → Supabase/Telegram) | `backend/` |
-| Firmware ESP32 | `esp32_firmware.ino` + `secrets.h` |
-| Skema database | `sql/001_schema.sql`, `sql/002_series.sql` |
-| Panduan deploy | `docs/DEPLOY.md` |
+| Part | Location |
+| --- | --- |
+| Dashboard (HTML, CSS, ES modules, no build step) | `public/` |
+| Serverless API, used by Vercel and by `server.js` | `api/*.js`, `lib/handlers/*.js` |
+| Logger (MQTT, validation, Supabase and Telegram) | `backend/` |
+| ESP32 firmware | `esp32_firmware.ino` and `secrets.h` |
+| Database schema | `sql/001_schema.sql`, `sql/002_series.sql` |
+| Deployment guide | `docs/DEPLOY.md` |
 
-Prefix: `antikobongan/prototipe-gx7q4m`, node `esp32-01`, interval kirim 15 detik.
-Topik yang dipakai: `<prefix>/<node>/sensor` (JSON) dan `<prefix>/<node>/status`
-(`online`/`offline`, LWT).
+Topics are `<prefix>/<node>/sensor` (JSON) and `<prefix>/<node>/status` (`online` or `offline`, set as the last will).
 
-## Dasbor
+## Dashboard
 
-- **Risiko sekarang** — satu angka utama, level (Normal/Sedang/Tinggi/Kritis
-  dengan warna + bentuk), tren 1 jam, umur data, dan saran. Bila data lebih
-  tua dari 5 menit, dasbor menyatakan dengan jelas bahwa itu bukan kondisi
-  sekarang.
-- **Rantai status** Node → Broker → Pencatat → Database, menunjukkan di mana
-  aliran data putus (misalnya "node mengirim, tetapi pencatat berhenti").
-- **Pembacaan & kontribusi skor** — empat komponen rumus firmware (`x/35`,
-  `x/25`, …). Data lama tanpa `gas_excess` ditandai "n/a", tidak ditebak.
-- **Tren** — grafik skor dengan pita ambang 40/60/80 dan grafik kecil per
-  besaran. Sumbu waktunya nyata, pita min–maks per bucket ditampilkan, jeda
-  data diarsir sebagai "tidak ada data", dan crosshair serta readout
-  tersinkron. Rentang yang tersedia: 1 jam, 6 jam, 24 jam, 7 hari, 30 hari,
-  dan Kustom, plus "Lompat ke data terakhir".
-- **Peringatan & kejadian** — event dari database ditambah peringatan yang
-  dihitung dasbor dari skor live. Topik MQTT `alert` sengaja tidak dipakai.
-- **Node** — daftar node dan peta Leaflet. Peta hanya muncul bila ada node
-  berkoordinat.
-- **Kelola node** (menu ⋯) — PIN diperiksa server, lalu daftar node disimpan
-  ke tabel `nodes` dan berlaku untuk semua pengguna.
-- **Diagnostik** (menu ⋯) — konfigurasi broker, ringkasan data, dan log teknis.
+- Current risk: one main number, a level (Normal, Medium, High, Critical, shown by color and shape), a one-hour trend, data age and advice. If the data is older than five minutes the dashboard says it is not the current condition.
+- A status chain Node, Broker, Logger, Database that shows where the data flow stops.
+- Readings and score contributions: the four components of the firmware formula. Old rows without `gas_excess` are marked n/a, not guessed.
+- Trend charts with threshold bands at 40, 60 and 80, min and max bands per bucket, gaps shaded as "no data", ranges of 1 hour, 6 hours, 24 hours, 7 days, 30 days or custom.
+- Alerts and events from the database, plus alerts computed by the dashboard from the live score.
+- A node list and a Leaflet map, shown only when a node has coordinates.
+- Node management behind a PIN that the server checks, and a diagnostics view.
 
-## Menjalankan lokal
+## Running locally
 
 ```sh
 npm install
-cp backend/.env.example backend/.env   # lalu isi nilainya
+cp backend/.env.example backend/.env   # then fill in the values
 npm start                               # http://localhost:3000
 ```
 
-`server.js` membaca `backend/.env`, memakai handler API yang sama dengan Vercel,
-dan mengirim header keamanan yang sama (diambil dari `vercel.json`).
+`server.js` reads `backend/.env`, uses the same API handlers as Vercel and sends the same security headers from `vercel.json`.
 
-## Menjalankan pencatat (backend)
-
-macOS/Linux:
+Logger on macOS or Linux:
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
-caffeinate -i ./backend/jalankan.sh
+./backend/jalankan.sh
 ```
 
-Windows: `run_backend.bat`. Pencatat harus terus berjalan agar riwayat dan
-notifikasi tercatat. Bila pencatat berhenti, rantai status di dasbor menyala
-merah di mata rantai **Pencatat**.
+On Windows use `run_backend.bat`. The logger has to keep running for history and notifications to be recorded; when it stops, the Logger link of the status chain turns red.
 
-## Konfigurasi
+## Configuration
 
-Semua nilai ada di `backend/.env.example` (salin ke `backend/.env`; untuk
-Vercel isi di Environment Variables):
+All values are listed in `backend/.env.example`. For Vercel, set them as environment variables.
 
-| Variabel | Dipakai | Keterangan |
-|---|---|---|
-| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | pencatat, API | Server-side saja |
-| `SUPABASE_ANON_KEY` | API (opsional) | Dipakai untuk baca bila diisi |
-| `ADMIN_PIN`, `ADMIN_TOKEN_SECRET` | API | PIN panel Kelola node + rahasia token sesi |
-| `MQTT_HOST`, `MQTT_PORT`, `MQTT_TLS`, `MQTT_USERNAME`, `MQTT_PASSWORD` | pencatat | Broker untuk pencatat |
-| `MQTT_WS_URL`, `MQTT_WEB_USERNAME`, `MQTT_WEB_PASSWORD` | API → browser | Broker WebSocket dasbor; akun **hanya subscribe** |
-| `TOPIC_PREFIX`, `NODE_ID` | pencatat, API | Harus sama dengan firmware |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | pencatat | Opsional |
-| `STALE_SECONDS`, `RETENTION_DAYS`, `ALERT_*` | pencatat | Deteksi offline, retensi, ambang alert |
+| Variable | Used by | Notes |
+| --- | --- | --- |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | logger, API | Server side only |
+| `SUPABASE_ANON_KEY` | API | Optional, used for reads when set |
+| `ADMIN_PIN`, `ADMIN_TOKEN_SECRET` | API | Node management PIN and session token secret |
+| `MQTT_HOST`, `MQTT_PORT`, `MQTT_TLS`, `MQTT_USERNAME`, `MQTT_PASSWORD` | logger | Broker for the logger |
+| `MQTT_WS_URL`, `MQTT_WEB_USERNAME`, `MQTT_WEB_PASSWORD` | API to browser | WebSocket broker for the dashboard; use a subscribe-only account |
+| `TOPIC_PREFIX`, `NODE_ID` | logger, API | Must match the firmware |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | logger | Optional |
+| `STALE_SECONDS`, `RETENTION_DAYS`, `ALERT_*` | logger | Offline detection, retention, alert thresholds |
 
-Firmware memakai `secrets.h` (salin dari `secrets.example.h`): WiFi, serta
-host/TLS/akun broker. File itu masuk `.gitignore`.
+The firmware reads `secrets.h` (copy `secrets.example.h`): WiFi and broker host, TLS and account. It is listed in `.gitignore`.
 
 ## API
 
-| Endpoint | Isi | Ukuran (data asli) |
-|---|---|---|
-| `GET /api/latest?node_id=` | Pembacaan terakhir, `latest_at`, total, heartbeat pencatat, status node | ±0,6 KB |
-| `GET /api/series?node_id=&range=1h\|6h\|24h\|7d\|30d` atau `&from=&to=` | Agregat per bucket (avg/min/maks, n), maks 720 bucket | ≤ ±70 KB |
-| `GET /api/events?node_id=&limit=20&before=` | Kejadian terbaru dulu + paginasi | ±4 KB |
-| `GET /api/nodes` · `POST /api/nodes` | Daftar node · simpan (butuh token admin) | < 5 KB |
-| `POST /api/admin` | `{pin}` → token sesi 30 menit; maks 5 gagal / 15 menit per IP | — |
-| `GET /api/mqtt-config` | Alamat broker WebSocket + akun baca | — |
-| `GET /api/health` | Status konfigurasi | — |
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/latest?node_id=` | Latest reading, `latest_at`, totals, logger heartbeat, node status |
+| `GET /api/series?node_id=&range=1h\|6h\|24h\|7d\|30d` or `&from=&to=` | Aggregates per bucket (avg, min, max, n), at most 720 buckets |
+| `GET /api/events?node_id=&limit=20&before=` | Newest events first, paginated |
+| `GET /api/nodes`, `POST /api/nodes` | List nodes, save nodes (needs an admin token) |
+| `POST /api/admin` | `{pin}` returns a 30-minute session token; at most 5 failures per 15 minutes per IP |
+| `GET /api/mqtt-config` | WebSocket broker address and the read-only account |
+| `GET /api/health` | Configuration status |
 
-Bila `sql/002_series.sql` belum dijalankan, `/api/series` dan `/api/latest`
-tetap bekerja dengan agregasi di server (lebih lambat). Diagnostik akan
-menyebut "migrasi 002 belum dijalankan".
+If `sql/002_series.sql` has not been applied, `/api/series` and `/api/latest` still work with server-side aggregation, only slower.
 
-## Pengujian
+## Tests
 
 ```sh
-npm test                                              # API + modul dasbor
-npm run check                                         # cek sintaks
+npm test                                              # API and dashboard modules
+npm run check                                         # syntax check
 .venv/bin/python -m unittest discover -s backend/tests -t . -v
 ```
-
-## Pustaka frontend
-
-Pustaka disimpan di `public/vendor/` dengan versi terkunci di `package.json`
-(lihat `public/vendor/VERSIONS.txt`). Setelah mengubah versi: `npm install &&
-npm run vendor`. Tidak ada CDN, sehingga CSP bisa `script-src 'self'`.
-
-## Batasan
-
-Prototipe satu node, DHT11, MQ-2 tanpa kalibrasi ppm, dan pencatat yang
-berjalan di laptop. Skor risiko adalah proksi sederhana, bukan FWI/KBDI resmi.
-Selama broker masih publik, siapa pun bisa mengirim pesan ke topik. Dasbor
-memvalidasi dan tidak pernah merender isi pesan sebagai HTML, tetapi data
-palsu tetap bisa terlihat. Pindah ke broker privat menutup celah ini
-(`docs/DEPLOY.md` §4).
